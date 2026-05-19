@@ -78,9 +78,15 @@ public abstract class AsyncFFmpegFinishMixin {
     @Inject(method = "finish", at = @At("TAIL"), require = 0)
     private void fbt$disableSaving(CallbackInfo ci) {
         this.fbt$savingActive = false;
-        // Note : on laisse Flashback's setScreen(null) (ligne 588 d'ExportJob.run) gérer
-        // le cleanup. Si jamais on veut le faire ici, ça causerait un flash si Flashback
-        // re-render finishFrame entre temps.
+        // Cleanup explicite : ExportJob.setup() fait setScreen(null) AVANT la boucle d'export
+        // (ligne 588), pas après. Donc rien ne reset mc.screen après finish(). Sans ce cleanup,
+        // notre SavingExportScreen reste dans mc.screen après l'export — visuellement masqué
+        // par ReplayUI / l'editor ImGui qui reprend, mais état pas propre (mouse events,
+        // visible si user ferme l'editor avant que MC re-render).
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc != null && mc.currentScreen instanceof SavingExportScreen) {
+            mc.setScreen(null);
+        }
     }
 
     @Unique
