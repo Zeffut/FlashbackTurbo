@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "fr.zeffut.flashbackturbo.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "encoder.AsyncFFmpegVideoWriterMixin",
+    "png.PngSequenceVideoWriterMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

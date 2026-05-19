@@ -16,6 +16,10 @@ run/
 runs/
 .fabric/
 
+# Test artifacts
+test-instance/
+logs/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -27,3 +31,6 @@ Thumbs.db
 # Generated artifacts
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+
+# Third-party jars en compile-only (téléchargés via scripts/fetch-flashback.sh)
+libs/

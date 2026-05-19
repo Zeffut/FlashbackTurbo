@@ -1,86 +1,82 @@
 # FlashbackTurbo — Specification
 
-## 1. Problem statement
+## 1. Problème
 
-Flashback exports Minecraft replays to video by re-rendering the timeline in-engine, capturing the framebuffer per tick, and piping frames to FFmpeg (mp4) or writing them as a PNG sequence. On a typical 10-minute replay at 60 fps (36 000 frames), exports commonly take **30–90 minutes** depending on resolution, shaders, and CPU/GPU.
+Flashback exporte les replays Minecraft en re-rendant la timeline, capturant le framebuffer par tick, puis envoyant les frames à FFmpeg (mp4) ou PNG sequence. Sur un replay de 10 min à 60 fps (36 000 frames), l'export dure typiquement **30-90 minutes**.
 
-Profiling the existing pipeline (see [Flashback `exporting/` package](https://github.com/Moulberry/Flashback/tree/master/src/main/java/com/moulberry/flashback/exporting)) suggests three improvable areas:
+L'audit du codebase Flashback 2026 (commit récent, version 0.39.5) montre que **deux des trois axes prévus du SPEC initial sont déjà optimisés en vanilla** :
 
-| Stage                          | Approx share | Improvable? |
-|--------------------------------|--------------|-------------|
-| Tick + render + PerfectFrames  | ~40 %        | No          |
-| Framebuffer readback (glReadPixels) | ~30 %   | Yes — PBO double-buffer |
-| FFmpeg encode (CPU x264)       | ~20 %        | Yes — hardware encoder  |
-| PNG sequence write (zlib L6)   | ~10 %        | Yes — parallel + lower level |
+| Étape | Part approx. | Status en Flashback 2026 |
+|-------|--------------|--------------------------|
+| Render + tick + PerfectFrames | ~40 % | Non touchable (hors scope) |
+| Framebuffer readback | ~30 % | ✅ **déjà PBO async** via `GpuBuffer` + `copyTextureToBuffer`, 6 frames en vol |
+| Encode FFmpeg | ~20 % | ✅ HW encoders déjà disponibles via `VideoCodec.getEncoders()` |
+| Pre-encode CPU work (swscale RGBA→YUV) | ~10 % | ❌ rescaleThread mono-cœur — gros levier restant |
+| PNG sequence write | ~10 % (mode PNG seul) | ❌ single-thread + zlib L6 hardcodé Mojang |
 
-Realistic target: **30–50 % faster export** without quality loss for the user-facing visual output.
+## 2. Contrainte
 
-## 2. Non-goals
+> **Aucune perte de qualité visuelle.** Tolérance : SSIM ≥ 0.99 par rapport à la sortie vanilla, ce qui couvre le changement d'encoder hardware (différences subtiles vs libx264) et la conversion couleur GPU vs swscale CPU (identiques à la spec BT.709 près).
 
-- We do not modify Flashback's render or PerfectFrames code.
-- We do not redistribute Flashback code.
-- We do not silently change output quality. Every speed-vs-quality knob is **opt-in** via UI.
+## 3. Hooks (cf docs/HOOKS.md)
 
-## 3. Architecture
+Quatre hooks Mixin implémentés (0.1.x / 0.2.x), un déféré (0.4.x).
 
-Three independent hooks, each shippable separately:
+### H4 — Lever cap résolution 4K (0.1.0)
 
-### 3.1. Hardware encoder injector
+`AsyncFFmpegVideoWriter` downscale silencieusement les exports >4K. On supprime cette branche via `@ModifyConstant`. Amélioration qualité, pas perte.
 
-Mixin into `AsyncFFmpegVideoWriter.start()` (or its equivalent entry point — to be confirmed by inspection). Detect platform GPU, inject the corresponding FFmpeg flags before the existing CPU-encode arguments. Fall back silently to CPU x264 if the hardware encoder probe fails.
+### H6 — Tunes threading FFmpeg (0.1.0)
 
-Detection order (per OS):
-- macOS: `videotoolbox`
-- Linux + NVIDIA: `nvenc`
-- Linux + Intel: `qsv` / `vaapi`
-- Linux + AMD: `amf` / `vaapi`
-- Windows: same, plus `d3d11va`
+`@Redirect` autour de `recorder.start()` pour injecter `setVideoOption("threads", "auto")` et tunes par encoder (nvenc.delay, qsv.async_depth, amf.query_timeout). Lossless — ne touche que le scheduling interne FFmpeg.
 
-### 3.2. Parallel PNG writer
+### H2 + H3 + H7 — Refonte PNG writer (0.2.0)
 
-Mixin into `PNGSequenceVideoWriter.write(...)`. Replace the single-threaded zlib compress + file write with a bounded `ExecutorService` (default = number of CPU cores − 1) and configurable compression level (default 6, user-settable 1–9).
+`PNGSequenceVideoWriter` est remplacé par `ParallelPngEncoder` (N-1 threads, custom `FastPngWriter` avec `Deflater` configurable). Le bypass se fait via `@Redirect` sur `Thread.start()` dans le ctor + `@Inject(HEAD, cancellable)` sur encode/finish/close. H7 supprime la boucle d'alpha cleanup en utilisant directement PNG color type 2 (RGB) quand transparency est off.
 
-### 3.3. PBO framebuffer readback
+### H5 — GPU RGB→YUV (0.4.0, déféré)
 
-Mixin into `SaveableFramebufferQueue` (or the framebuffer capture entry point — to be confirmed). Replace the blocking `glReadPixels` with a two-PBO ring: frame N's pixels are read while frame N+1 is rendering.
+Convertir RGBA → YUV420p dans un shader GLSL pendant le `blitFlip`, télécharger des planes YUV au lieu de RGBA, faire skip le `rescaleThread`. Design complet dans `docs/HOOKS.md`. Implémentation déférée — risque élevé sans validation multi-GPU.
 
-## 4. UI integration
+## 4. Configuration
 
-A single new section in Flashback's export settings dialog:
+Fichier JSON `<game>/config/flashbackturbo.json`. Tous les hooks toggleables. Niveau zlib PNG slider 1-9. Voir [`TurboConfig`](../src/main/java/fr/zeffut/flashbackturbo/config/TurboConfig.java).
 
-```
-Performance
-  [x] Use hardware encoder (when available)        [info: ?]
-  [ ] Fast PNG compression (smaller wait, larger files)
-  [x] Asynchronous framebuffer readback
-```
+## 5. Tests et validation
 
-All three default to safe values (hardware on, PNG fast off, async readback on). The user can disable any of them to fall back to vanilla Flashback behaviour.
+Voir [docs/TESTING.md](TESTING.md) pour les 3 couches :
+- Tests unitaires JUnit 5 (round-trip PNG, helpers purs)
+- Sandbox MC isolée via `./gradlew runClient`
+- Benchmark vanilla vs turbo (à venir, externe au mod)
 
-## 5. Compatibility
+## 6. Compatibilité
 
-- MC 1.21.9 / 1.21.10 / 1.21.11 / 26.1.x — same compatibility matrix as Flashback and MultiView.
-- Requires Flashback ≥ 0.39.0.
-- Fabric only.
+- MC 1.21.9 / 1.21.10 (Flashback 0.39.5)
+- 1.21.11 (Flashback 0.39.5 pour 1.21.11) — à valider
+- 26.1.x (Flashback 0.40.0) — à valider
+- Fabric Loader ≥ 0.19.2, Java 21
+- Aucune dépendance Forge / NeoForge
 
-## 6. Open questions (to resolve before milestone 0.1)
+## 7. Légal
 
-1. Are the Flashback classes we plan to Mixin marked `final` or otherwise un-Mixin-friendly?
-2. Does Flashback's license permit Mixin-based behaviour modification by an external addon?
-   - The license forbids reuploading and redistributing Flashback, but addons that depend on it via runtime hooks are an established pattern (see MultiView). To confirm explicitly.
-3. Which FFmpeg binary does Flashback ship / use? (bundled vs system PATH — affects which encoders are reachable)
-4. Is `glReadPixels` actually called once per frame, or already batched? PBO work only pays off if it is currently blocking.
+Licence Flashback : "Copyright 2024 Moulberry. Do not redistribute. All rights reserved."
 
-## 7. Validation plan
+FlashbackTurbo ne redistribue **aucun** code Flashback. Le jar Flashback est compile-only, gitignored, chaque dev le télécharge. Les Mixins patchent le bytecode au runtime contre la copie de Flashback que l'utilisateur a légitimement installée.
 
-- Benchmark vanilla Flashback export on a fixed 5-minute replay at 1080p60.
-- Apply each hook independently and re-benchmark.
-- Compare output frames pixel-by-pixel against vanilla output (hardware encoder will differ — measure SSIM, target ≥ 0.98).
-- Test on macOS (Apple Silicon), Linux + NVIDIA, Windows + Intel iGPU as the three priority platforms.
+**Action obligatoire avant release publique** : confirmer avec Moulberry sur le Discord `flashback-tool` (`#addons`) que les addons Mixin externes sont permis. La licence ne mentionne pas explicitement les addons ; précédent : MultiView existe sans contestation.
 
 ## 8. Roadmap
 
-- **0.1.0** — Hardware encoder injector only, behind opt-in flag.
-- **0.2.0** — Parallel PNG writer.
-- **0.3.0** — PBO readback.
-- **0.4.0** — Combined defaults, polished UI, telemetry-free benchmark command.
+- **0.1.0** — H4 + H6 — gain qualité (4K cap) + tunes threading ✅ codé
+- **0.2.0** — H2 + H3 + H7 — refonte PNG writer (5-10× sur export PNG) ✅ codé
+- **0.3.0** — Baseline benchmark vanilla, tooling de validation SSIM
+- **0.4.0** — H5 GPU RGB→YUV — gros gain MP4 (+10-25%)
+- **0.5.0** — Support 1.21.11 / 26.1.x
+- **1.0.0** — Permission Moulberry confirmée, premier release Modrinth public
+
+## 9. Hors scope définitif
+
+- Toucher au pipeline de rendu / PerfectFrames (responsabilité Flashback).
+- Forker, redistribuer ou inclure du code Flashback.
+- Auto-tuning qualité vs vitesse sans consentement explicite utilisateur.
+- Tout changement qui dégrade l'output visuel.

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "flashbackturbo",
+  "version": "${version}",
+  "name": "FlashbackTurbo",
+  "description": "Accélère l'export Flashback via hardware encoder, écriture PNG parallèle et PBO readback.",
+  "authors": ["Zeffut"],
+  "contact": {
+    "homepage": "https://github.com/Zeffut/FlashbackTurbo",
+    "sources": "https://github.com/Zeffut/FlashbackTurbo"
+  },
+  "license": "TBD",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "fr.zeffut.flashbackturbo.FlashbackTurboClient"
+    ]
+  },
+  "mixins": [
+    "flashbackturbo.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": ">=1.21.11",
+    "java": ">=21",
+    "flashback": ">=0.39.0"
+  }
+}
