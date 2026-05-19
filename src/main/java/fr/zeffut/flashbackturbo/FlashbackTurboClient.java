@@ -13,7 +13,7 @@ public class FlashbackTurboClient implements ClientModInitializer {
     public void onInitializeClient() {
         TurboConfig.load();
         var cfg = TurboConfig.current();
-        LOGGER.info("[FlashbackTurbo] init — liftResolutionCap={} tuneFFmpegThreading={} parallelPngWriter={} (zlib L{}) showExportProgressOverlay={}",
-            cfg.liftResolutionCap, cfg.tuneFFmpegThreading, cfg.parallelPngWriter, cfg.pngCompressionLevel, cfg.showExportProgressOverlay);
+        LOGGER.info("[FlashbackTurbo] init — liftResolutionCap={} tuneFFmpegThreading={} parallelPngWriter={} (zlib L{}) showExportProgressOverlay={} useFragmentedMp4OnHwEncoders={}",
+            cfg.liftResolutionCap, cfg.tuneFFmpegThreading, cfg.parallelPngWriter, cfg.pngCompressionLevel, cfg.showExportProgressOverlay, cfg.useFragmentedMp4OnHwEncoders);
     }
 }

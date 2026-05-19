@@ -47,10 +47,23 @@ public final class TurboConfig {
     public boolean gpuColorspaceConversion = false;
 
     /**
-     * Affiche un overlay de progression pendant l'export Flashback (H8) — sinon écran figé.
-     * <p>0.3.2 : bug `@At("THROW")` invalid fixé. Réactivé par défaut.
+     * H8 (0.3.5+) : affiche un écran "Saving…" animé pendant le post-export Flashback
+     * (drain des queues encode + attente threads dans {@code AsyncFFmpegVideoWriter.finish()}).
+     * Sans cet écran, le main thread bloqué donne l'impression que le jeu a planté.
+     * <p>Ne s'applique qu'au mode MP4/MKV/etc. (FFmpeg writer). Le PNG sequence n'a pas
+     * besoin (la finish PNG est rapide vu qu'on parallélise les writes).
      */
     public boolean showExportProgressOverlay = true;
+
+    /**
+     * H9 (0.3.5+) : utilise fragmented MP4 (movflags=+frag_keyframe+empty_moov) avec les
+     * hardware encoders (videotoolbox, nvenc, qsv, amf). Le finalize FFmpeg passe de
+     * ~10-15s à ~1-2s en éliminant l'écriture du moov atom géant à la fin du fichier.
+     * <p>Tradeoff : fichier ~1-3% plus gros. Compatible VLC/IINA/Premiere/DaVinci/Discord/
+     * YouTube et tout player MP4 récent. Désactiver si tu produces pour des pipelines pros
+     * stricts (broadcast, archivage long-terme).
+     */
+    public boolean useFragmentedMp4OnHwEncoders = true;
 
     private TurboConfig() {}
 

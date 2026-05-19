@@ -1,2 +1,2 @@
-// Mixins ciblant le rendu UI pendant l'export Flashback (H8).
+// Mixins ciblant l'affichage UI pendant le post-export (H8).
 package fr.zeffut.flashbackturbo.mixin.gui;

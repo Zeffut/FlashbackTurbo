@@ -1,6 +1,7 @@
 package fr.zeffut.flashbackturbo.encoder;
 
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
+import fr.zeffut.flashbackturbo.config.TurboConfig;
 import org.bytedeco.javacv.FFmpegFrameRecorder;
 
 /**
@@ -38,6 +39,7 @@ public final class EncoderTuning {
             recorder.setVideoOption("threads", "auto");
         }
 
+        boolean isHwEncoder = false;
         switch (encoder) {
             case "libx264", "libx265" -> {
                 // x264/x265 sont déjà bien threadés en auto. Rien d'autre à toucher
@@ -48,25 +50,44 @@ public final class EncoderTuning {
                 if (recorder.getVideoOption("delay") == null) {
                     recorder.setVideoOption("delay", "0");
                 }
+                isHwEncoder = true;
             }
             case "h264_qsv", "hevc_qsv", "av1_qsv" -> {
                 // async_depth >1 permet plus de parallélisme sans altérer le bitstream.
                 if (recorder.getVideoOption("async_depth") == null) {
                     recorder.setVideoOption("async_depth", Integer.toString(Math.min(8, CPU_CORES)));
                 }
+                isHwEncoder = true;
             }
             case "h264_amf", "hevc_amf", "av1_amf" -> {
                 // AMF a query_timeout pour non-blocking submit, lossless.
                 if (recorder.getVideoOption("query_timeout") == null) {
                     recorder.setVideoOption("query_timeout", "1000");
                 }
+                isHwEncoder = true;
+            }
+            case "h264_videotoolbox", "hevc_videotoolbox" -> {
+                // videotoolbox (macOS) : pas de tune threading particulier, mais on flag pour movflags.
+                isHwEncoder = true;
             }
             default -> {
-                // Encoders inconnus (videotoolbox, libaom-av1, libsvtav1) : on ne touche à rien.
+                // Encoders inconnus (libaom-av1, libsvtav1) : on ne touche à rien.
             }
         }
 
-        FlashbackTurboClient.LOGGER.info("[H6] tunes appliqués pour encoder={} (threads={})",
-            encoder, recorder.getVideoOption("threads"));
+        // H9 : Fragmented MP4 sur HW encoders.
+        // Sans ça, FFmpeg écrit un moov atom géant à la fin, ce qui prend 8-12s sur
+        // des exports >100 MB. Avec +frag_keyframe+empty_moov, chaque chunk est
+        // self-contained et le finalize est ~10× plus rapide. Compatible VLC, IINA,
+        // Premiere, DaVinci, Discord, YouTube, navigateurs. ~1-3% de taille en plus.
+        if (isHwEncoder && TurboConfig.current().useFragmentedMp4OnHwEncoders) {
+            if (recorder.getOption("movflags") == null) {
+                recorder.setOption("movflags", "+frag_keyframe+empty_moov");
+                FlashbackTurboClient.LOGGER.info("[H9] fragmented MP4 actif (movflags=+frag_keyframe+empty_moov)");
+            }
+        }
+
+        FlashbackTurboClient.LOGGER.info("[H6] tunes appliqués pour encoder={} (threads={}, hw={})",
+            encoder, recorder.getVideoOption("threads"), isHwEncoder);
     }
 }

@@ -5,7 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "encoder.AsyncFFmpegVideoWriterMixin",
-    "gui.ExportJobProgressMixin",
+    "gui.AsyncFFmpegFinishMixin",
     "png.PngSequenceVideoWriterMixin"
   ],
   "injectors": {
