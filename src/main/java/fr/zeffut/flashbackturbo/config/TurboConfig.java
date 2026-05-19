@@ -46,8 +46,13 @@ public final class TurboConfig {
     /** Conversion RGB→YUV GPU. Désactivé tant que H5 n'est pas implémenté (cf docs/HOOKS.md). */
     public boolean gpuColorspaceConversion = false;
 
-    /** Affiche un overlay de progression pendant l'export Flashback (H8) — sinon écran figé. */
-    public boolean showExportProgressOverlay = true;
+    /**
+     * Affiche un overlay de progression pendant l'export Flashback (H8) — sinon écran figé.
+     * <p>Default OFF en 0.3.1 : la première implémentation en 0.3.0 cassait le pipeline
+     * d'export Flashback (l'export ne se lançait plus). Bug en cours d'investigation,
+     * activer à tes risques.
+     */
+    public boolean showExportProgressOverlay = false;
 
     private TurboConfig() {}
 
