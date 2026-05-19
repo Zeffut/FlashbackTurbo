@@ -39,13 +39,6 @@ public final class TurboConfig {
     /** Niveau de compression zlib pour PNG (1=rapide, 9=compact). Lossless dans tous les cas. */
     public int pngCompressionLevel = 1;
 
-    /** Réservé pour une optimisation future (memset natif alpha). Pas utilisé en 0.2.x — l'alpha cleanup
-     * est éliminée par H7 qui passe en PNG color type 2. */
-    public boolean nativeAlphaCleanup = true;
-
-    /** Conversion RGB→YUV GPU. Désactivé tant que H5 n'est pas implémenté (cf docs/HOOKS.md). */
-    public boolean gpuColorspaceConversion = false;
-
     /**
      * H8 (0.3.5+) : affiche un écran "Saving…" animé pendant le post-export Flashback
      * (drain des queues encode + attente threads dans {@code AsyncFFmpegVideoWriter.finish()}).
