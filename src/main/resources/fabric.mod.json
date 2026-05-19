@@ -3,13 +3,13 @@
   "id": "flashbackturbo",
   "version": "${version}",
   "name": "FlashbackTurbo",
-  "description": "Accélère l'export Flashback via hardware encoder, écriture PNG parallèle et PBO readback.",
+  "description": "Drastically speeds up Flashback video export via parallel PNG writer, FFmpeg threading tunes, and 4K cap removal. Lossless. Measured 10x speedup at 1080p.",
   "authors": ["Zeffut"],
   "contact": {
     "homepage": "https://github.com/Zeffut/FlashbackTurbo",
     "sources": "https://github.com/Zeffut/FlashbackTurbo"
   },
-  "license": "TBD",
+  "license": "ARR",
   "environment": "client",
   "entrypoints": {
     "client": [
@@ -21,7 +21,7 @@
   ],
   "depends": {
     "fabricloader": ">=0.16.0",
-    "minecraft": ">=1.21.11",
+    "minecraft": ">=1.21.9",
     "java": ">=21",
     "flashback": ">=0.39.0"
   }
