@@ -4,8 +4,9 @@
 
 A Fabric addon for [Flashback](https://modrinth.com/mod/flashback) that drastically speeds up video export — **without quality loss**.
 
-> Status: **0.2.0 published** ([Modrinth](https://modrinth.com/mod/flashbackturbo)).
+> Status: **0.3.6 published** ([Modrinth](https://modrinth.com/mod/flashbackturbo)).
 > Measured speedup: **10.95× at 1080p** on a real Flashback replay, pixels decoded strictly identical.
+> Plus animated post-export overlay (H8) and ~10× faster MP4 finalize via fragmented muxer (H9).
 
 ## What it does
 
@@ -53,8 +54,8 @@ Flashback already exposes hardware encoders (`h264_nvenc`, `h264_videotoolbox`, 
 
 | MC version | Flashback version | FlashbackTurbo version | Java |
 |------------|-------------------|------------------------|------|
-| 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.2.0` | 21 |
-| 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.2.0+26.1` | 25 |
+| 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.3.6` | 21 |
+| 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.3.6+26.1` | 25 |
 
 Fabric Loader ≥ 0.19.2. Fabric API required.
 

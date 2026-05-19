@@ -20,7 +20,7 @@ L'audit du codebase Flashback 2026 (commit récent, version 0.39.5) montre que *
 
 ## 3. Hooks (cf docs/HOOKS.md)
 
-Quatre hooks Mixin implémentés (0.1.x / 0.2.x), un déféré (0.4.x).
+Sept hooks Mixin implémentés (0.1.x / 0.2.x / 0.3.x), un déféré (0.4.x).
 
 ### H4 — Lever cap résolution 4K (0.1.0)
 
@@ -29,6 +29,14 @@ Quatre hooks Mixin implémentés (0.1.x / 0.2.x), un déféré (0.4.x).
 ### H6 — Tunes threading FFmpeg (0.1.0)
 
 `@Redirect` autour de `recorder.start()` pour injecter `setVideoOption("threads", "auto")` et tunes par encoder (nvenc.delay, qsv.async_depth, amf.query_timeout). Lossless — ne touche que le scheduling interne FFmpeg.
+
+### H8 — Animated Saving overlay (0.3.5)
+
+Pendant `AsyncFFmpegVideoWriter.finish()`, le main thread bloque sur les wait loops drainant les queues encode/rescale. Sans `H8`, l'écran reste figé sur la dernière frame `finishFrame` de Flashback. Notre Mixin `@Redirect` les `LockSupport.parkNanos` pour intercaler un `gameRenderer.render(deltaTracker, false)` + `glfwSwapBuffers` à 4 fps. Affiche un `SavingExportScreen` avec animation des points et timer.
+
+### H9 — Fragmented MP4 sur hardware encoders (0.3.5)
+
+`EncoderTuning.applyThreadingTunes` ajoute `recorder.setOption("movflags", "+frag_keyframe+empty_moov")` quand l'encoder est `videotoolbox/nvenc/qsv/amf`. Élimine le moov atom géant écrit à la fin du fichier MP4. Sur un export 3 GB, finalize réduit de ~15s à ~1-2s (vérifié via ffprobe : premier 200KB du fichier produit ne contient que `mdat`, aucun `moov`/`mvhd`).
 
 ### H2 + H3 + H7 — Refonte PNG writer (0.2.0)
 
