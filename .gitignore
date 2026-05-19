@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+out/
+bin/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Fabric
+run/
+runs/
+.fabric/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets / env
+.env
+.env.local
+
+# Generated artifacts
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
