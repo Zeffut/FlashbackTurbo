@@ -48,11 +48,9 @@ public final class TurboConfig {
 
     /**
      * Affiche un overlay de progression pendant l'export Flashback (H8) — sinon écran figé.
-     * <p>Default OFF en 0.3.1 : la première implémentation en 0.3.0 cassait le pipeline
-     * d'export Flashback (l'export ne se lançait plus). Bug en cours d'investigation,
-     * activer à tes risques.
+     * <p>0.3.2 : bug `@At("THROW")` invalid fixé. Réactivé par défaut.
      */
-    public boolean showExportProgressOverlay = false;
+    public boolean showExportProgressOverlay = true;
 
     private TurboConfig() {}
 

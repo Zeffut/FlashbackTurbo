@@ -29,27 +29,20 @@ public abstract class ExportJobProgressMixin {
         if (!TurboConfig.current().showExportProgressOverlay) return;
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc != null) {
-            mc.execute(() -> mc.setScreen(new ExportProgressScreen()));
+            // Synchronous : on est déjà sur le render thread, mc.execute() différerait
+            // l'appel et créerait un decalage avec ExportJob qui appelle setScreen(null)
+            // en interne. Set direct est plus prévisible.
+            mc.setScreen(new ExportProgressScreen());
         }
         this.flashbackturbo$lastRedrawNs = 0L;
     }
 
-    @Inject(method = "run", at = @At("RETURN"), require = 0)
-    private void flashbackturbo$removeProgressScreenOnReturn(CallbackInfo ci) {
-        flashbackturbo$cleanup();
-    }
-
-    @Inject(method = "run", at = @At("THROW"), require = 0)
-    private void flashbackturbo$removeProgressScreenOnThrow(CallbackInfo ci) {
-        flashbackturbo$cleanup();
-    }
-
-    @Unique
-    private void flashbackturbo$cleanup() {
+    @Inject(method = "run", at = @At("TAIL"), require = 0)
+    private void flashbackturbo$removeProgressScreen(CallbackInfo ci) {
         if (!TurboConfig.current().showExportProgressOverlay) return;
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc != null && mc.currentScreen instanceof ExportProgressScreen) {
-            mc.execute(() -> mc.setScreen(null));
+            mc.setScreen(null);
         }
     }
 
