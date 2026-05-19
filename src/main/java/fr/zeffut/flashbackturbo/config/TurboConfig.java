@@ -46,6 +46,9 @@ public final class TurboConfig {
     /** Conversion RGB→YUV GPU. Désactivé tant que H5 n'est pas implémenté (cf docs/HOOKS.md). */
     public boolean gpuColorspaceConversion = false;
 
+    /** Affiche un overlay de progression pendant l'export Flashback (H8) — sinon écran figé. */
+    public boolean showExportProgressOverlay = true;
+
     private TurboConfig() {}
 
     public static TurboConfig current() {

@@ -18,6 +18,7 @@ FlashbackTurbo patches Flashback's export pipeline via Mixin to replace serial, 
 | **H4** | `AsyncFFmpegVideoWriter` ctor | Removed the silent 4K downscale cap |
 | **H6** | `AsyncFFmpegVideoWriter.start()` | FFmpeg threading tunes per encoder (nvenc, qsv, amf, x264) |
 | **H7** | `PNGSequenceVideoWriter.encode()` | PNG color type 2 (RGB) when transparency is off, eliminates alpha cleanup loop |
+| **H8** | `ExportJob.run()` + `runClientTick()` | Full-screen progress overlay during export (frame X/Y, %, ETA) — replaces the frozen window |
 
 All hooks are opt-in via `<game>/config/flashbackturbo.json` and default to safe values. Toggle any of them off to fall back to vanilla Flashback behaviour.
 
@@ -81,7 +82,8 @@ For the 26.1.x branch (Mojang mappings + Loom 1.15-SNAPSHOT), see [docs/HOOKS.md
   "tuneFFmpegThreading": true,
   "parallelPngWriter": true,
   "pngCompressionLevel": 1,
-  "gpuColorspaceConversion": false
+  "gpuColorspaceConversion": false,
+  "showExportProgressOverlay": true
 }
 ```
 

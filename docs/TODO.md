@@ -2,16 +2,17 @@
 
 État au 2026-05-19. Voir [SPEC.md](SPEC.md) et [HOOKS.md](HOOKS.md) pour le détail technique.
 
-## ✅ Done (0.2.0 published)
+## ✅ Done (0.3.0 published)
 
 1. **Feasibility scan** — classes Flashback cibles toutes `public class` non-final, mixinables.
 2. **Build system** — Gradle 9.4.1, Loom 1.16.2 pour 1.21.x (Yarn), Loom 1.15-SNAPSHOT pour 26.1.x (Mojang mappings).
-3. **Hooks H2 + H3 + H4 + H6 + H7** — implémentés, mixiconfigurés, runtime-validés.
-4. **Config loadable** — `<game>/config/flashbackturbo.json`, défauts safe, override par hook.
-5. **Validation runtime** — MC + Flashback + FlashbackTurbo bootent, Mixins appliquent, export PNG génère des frames lossless.
-6. **Benchmark comparatif** — vanilla vs turbo sur replay 1.21.11 réel : **10.95× speedup à 1080p**, pixels décodés identiques.
-7. **Cross-version** — builds publiés pour 1.21.9 / 1.21.10 / 1.21.11 (Java 21) et 26.1.x (Java 25).
-8. **Modrinth release** — `flashbackturbo` slug, deux versions listées (`0.2.0` et `0.2.0+26.1`).
+3. **Hooks H2 + H3 + H4 + H6 + H7** — implémentés, mixinés, runtime-validés.
+4. **Hook H8 — Export progress overlay** (0.3.0) — plein écran avec frame X/Y + barre + ETA pendant l'export, force le render+swap depuis runClientTick.
+5. **Config loadable** — `<game>/config/flashbackturbo.json`, défauts safe, override par hook.
+6. **Validation runtime** — MC + Flashback + FlashbackTurbo bootent, Mixins appliquent, export PNG génère des frames lossless.
+7. **Benchmark comparatif** — vanilla vs turbo sur replay 1.21.11 réel : **10.95× speedup à 1080p**, pixels décodés identiques.
+8. **Cross-version** — builds publiés pour 1.21.9 / 1.21.10 / 1.21.11 (Java 21) et 26.1.x (Java 25).
+9. **Modrinth release** — `flashbackturbo` slug, plusieurs versions immutables (0.2.0, 0.2.1, 0.3.0 et leurs `+26.1`).
 
 ## 🔜 À faire
 
