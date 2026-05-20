@@ -38,6 +38,10 @@ Pendant `AsyncFFmpegVideoWriter.finish()`, le main thread bloque sur les wait lo
 
 `EncoderTuning.applyThreadingTunes` ajoute `recorder.setOption("movflags", "+frag_keyframe+empty_moov")` quand l'encoder est `videotoolbox/nvenc/qsv/amf`. Élimine le moov atom géant écrit à la fin du fichier MP4. Sur un export 3 GB, finalize réduit de ~15s à ~1-2s (vérifié via ffprobe : premier 200KB du fichier produit ne contient que `mdat`, aucun `moov`/`mvhd`).
 
+### H10 — Contournement race ExportJob.setup (0.3.9)
+
+`ExportJob.setup()` de Flashback fait un seul `runClientTick()` puis lit `mc.level`. Sur un export **mi-replay** (startTick non-zero), `setup()` fait seek le ReplayServer → rechargement du monde → `mc.level` transitoirement `null` → `NullPointerException` (`ExportJob.java:456`) avant la première frame. `ExportJobMixin` s'injecte après ce premier `runClientTick` et pompe `runClientTick` (via `@Invoker`) jusqu'à ce que `mc.level` soit chargé (timeout 60 s). Bug de Flashback (≥0.39.1) ; FBT ne fait que rendre l'export robuste. No-op quand le niveau est déjà prêt. Validé en autonomie : H10 off → crash, H10 on → `[H10] race contournée` → export OK.
+
 ### H2 + H3 + H7 — Refonte PNG writer (0.2.0)
 
 `PNGSequenceVideoWriter` est remplacé par `ParallelPngEncoder` (N-1 threads, custom `FastPngWriter` avec `Deflater` configurable). Le bypass se fait via `@Redirect` sur `Thread.start()` dans le ctor + `@Inject(HEAD, cancellable)` sur encode/finish/close. H7 supprime la boucle d'alpha cleanup en utilisant directement PNG color type 2 (RGB) quand transparency est off.

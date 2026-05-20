@@ -58,6 +58,17 @@ public final class TurboConfig {
      */
     public boolean useFragmentedMp4OnHwEncoders = true;
 
+    /**
+     * H10 (0.3.8+) : contourne une race de Flashback dans {@code ExportJob.setup()}. Flashback
+     * fait un seul {@code runClientTick()} puis lit {@code mc.level} ; si le monde du replay
+     * n'a pas fini de (re)charger — fréquent sur les replays serveur lourds — {@code mc.level}
+     * est null → {@code NullPointerException}, l'export plante avant la première frame.
+     * <p>Ce hook pompe {@code runClientTick()} après le premier tick jusqu'à ce que le niveau
+     * soit chargé (timeout 60 s). No-op si le niveau est déjà prêt (cas normal). Bug Flashback
+     * pur — FlashbackTurbo ne fait que le rendre robuste.
+     */
+    public boolean fixExportSetupRace = true;
+
     private TurboConfig() {}
 
     public static TurboConfig current() {

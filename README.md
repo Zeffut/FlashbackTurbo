@@ -21,6 +21,7 @@ FlashbackTurbo patches Flashback's export pipeline via Mixin to replace serial, 
 | **H7** | `PNGSequenceVideoWriter.encode()` | PNG color type 2 (RGB) when transparency is off, eliminates alpha cleanup loop |
 | **H8** | `AsyncFFmpegVideoWriter.finish()` | Animated "Saving..." overlay during post-export finalize phase (Flashback's own progress display doesn't update once export loop ends) |
 | **H9** | `AsyncFFmpegVideoWriter` recorder options | Fragmented MP4 (`movflags=+frag_keyframe+empty_moov`) on hardware encoders — eliminates the moov atom rewrite, ~10× faster finalize |
+| **H10** | `ExportJob.setup()` | Fixes a Flashback crash: `setup()` reads `mc.level` after a single `runClientTick`, which is null on a mid-replay export (server seek reloads the world) → `NullPointerException`. Pumps `runClientTick` until the level is loaded. |
 
 All hooks are opt-in via `<game>/config/flashbackturbo.json` and default to safe values. Toggle any of them off to fall back to vanilla Flashback behaviour.
 
@@ -84,9 +85,9 @@ For the 26.1.x branch (Mojang mappings + Loom 1.15-SNAPSHOT), see [docs/HOOKS.md
   "tuneFFmpegThreading": true,
   "parallelPngWriter": true,
   "pngCompressionLevel": 1,
-  "gpuColorspaceConversion": false,
   "showExportProgressOverlay": true,
-  "useFragmentedMp4OnHwEncoders": true
+  "useFragmentedMp4OnHwEncoders": true,
+  "fixExportSetupRace": true
 }
 ```
 

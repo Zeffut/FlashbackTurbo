@@ -27,7 +27,12 @@ public final class EncoderTuning {
 
     private EncoderTuning() {}
 
-    /** Applique les tunes adaptés à l'encoder courant du recorder. À appeler avant {@code recorder.start()}. */
+    /** Applique les tunes adaptés à l'encoder courant du recorder. À appeler avant {@code recorder.start()}.
+     *
+     * <p>Aucun setOption/setVideoOption n'est laissé non protégé : si une version de FFmpeg
+     * refuse une option (nom inconnu, valeur invalide), on log et on continue. Sans ça, une
+     * exception remonterait jusqu'au Mixin @Redirect et empêcherait {@code recorder.start()}
+     * → export crash silencieux côté user. */
     public static void applyThreadingTunes(FFmpegFrameRecorder recorder) {
         String encoder = recorder.getVideoCodecName();
         if (encoder == null) {
@@ -36,7 +41,7 @@ public final class EncoderTuning {
 
         // Universel : explicite "auto" si non set.
         if (recorder.getVideoOption("threads") == null) {
-            recorder.setVideoOption("threads", "auto");
+            tryVideoOption(recorder, "threads", "auto");
         }
 
         boolean isHwEncoder = false;
@@ -48,21 +53,21 @@ public final class EncoderTuning {
             case "h264_nvenc", "hevc_nvenc", "av1_nvenc" -> {
                 // delay=0 réduit le retard sans changer la sortie.
                 if (recorder.getVideoOption("delay") == null) {
-                    recorder.setVideoOption("delay", "0");
+                    tryVideoOption(recorder, "delay", "0");
                 }
                 isHwEncoder = true;
             }
             case "h264_qsv", "hevc_qsv", "av1_qsv" -> {
                 // async_depth >1 permet plus de parallélisme sans altérer le bitstream.
                 if (recorder.getVideoOption("async_depth") == null) {
-                    recorder.setVideoOption("async_depth", Integer.toString(Math.min(8, CPU_CORES)));
+                    tryVideoOption(recorder, "async_depth", Integer.toString(Math.min(8, CPU_CORES)));
                 }
                 isHwEncoder = true;
             }
             case "h264_amf", "hevc_amf", "av1_amf" -> {
                 // AMF a query_timeout pour non-blocking submit, lossless.
                 if (recorder.getVideoOption("query_timeout") == null) {
-                    recorder.setVideoOption("query_timeout", "1000");
+                    tryVideoOption(recorder, "query_timeout", "1000");
                 }
                 isHwEncoder = true;
             }
@@ -82,12 +87,31 @@ public final class EncoderTuning {
         // Premiere, DaVinci, Discord, YouTube, navigateurs. ~1-3% de taille en plus.
         if (isHwEncoder && TurboConfig.current().useFragmentedMp4OnHwEncoders) {
             if (recorder.getOption("movflags") == null) {
-                recorder.setOption("movflags", "+frag_keyframe+empty_moov");
-                FlashbackTurboClient.LOGGER.info("[H9] fragmented MP4 actif (movflags=+frag_keyframe+empty_moov)");
+                if (tryOption(recorder, "movflags", "+frag_keyframe+empty_moov")) {
+                    FlashbackTurboClient.LOGGER.info("[H9] fragmented MP4 actif (movflags=+frag_keyframe+empty_moov)");
+                }
             }
         }
 
         FlashbackTurboClient.LOGGER.info("[H6] tunes appliqués pour encoder={} (threads={}, hw={})",
             encoder, recorder.getVideoOption("threads"), isHwEncoder);
+    }
+
+    private static void tryVideoOption(FFmpegFrameRecorder recorder, String key, String value) {
+        try {
+            recorder.setVideoOption(key, value);
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.warn("[H6] setVideoOption({}={}) refusée par FFmpeg, ignorée : {}", key, value, t.toString());
+        }
+    }
+
+    private static boolean tryOption(FFmpegFrameRecorder recorder, String key, String value) {
+        try {
+            recorder.setOption(key, value);
+            return true;
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.warn("[H6] setOption({}={}) refusée par FFmpeg, ignorée : {}", key, value, t.toString());
+            return false;
+        }
     }
 }
