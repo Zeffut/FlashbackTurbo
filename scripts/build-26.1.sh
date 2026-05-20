@@ -43,6 +43,7 @@ find src/main/java -name "*.java" -print0 | xargs -0 sed -i '' \
     -e 's|DrawContext,|GuiGraphicsExtractor,|g' \
     -e 's|getRenderTickCounter()|getDeltaTracker()|g' \
     -e 's|mc\.currentScreen|mc.screen|g' \
+    -e 's|mc\.world|mc.level|g' \
     -e 's|getWindow()\.getHandle()|getWindow().handle()|g' \
     -e 's|drawCenteredTextWithShadow|centeredText|g' \
     -e 's|this\.textRenderer|this.font|g' \
