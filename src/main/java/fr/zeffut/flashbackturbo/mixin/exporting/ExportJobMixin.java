@@ -113,6 +113,12 @@ public abstract class ExportJobMixin {
      * {@code running=false}, la boucle sort, run() retourne normalement). On distingue les deux
      * cas en comparant les frames produites à celles attendues.
      *
+     * <p>Un export terminé normalement finit quasi toujours 1-2 frames sous {@code progressOutOf}
+     * (le compteur n'inclut pas la toute dernière frame / des dummy frames au moment du RETURN) :
+     * mesuré 628/630 sur un export réel complet. On ne classe donc en {@code cancelled} que si la
+     * progression est nettement en deçà (< 98 %) ; un vrai "Hold [ESC] to cancel" s'arrête bien
+     * plus tôt. Le ratio exact part comme propriété pour rester analysable côté PostHog.
+     *
      * <p>En cas d'EXCEPTION dans run(), ce hook NE se déclenche PAS (l'exception remonte) : ce
      * cas est couvert par l'incomplete-detection (setup HEAD du prochain export + shutdown).
      */
@@ -124,15 +130,19 @@ public abstract class ExportJobMixin {
         long now = System.nanoTime();
         Map<String, Object> props = new HashMap<>(ctx.snapshot(now));
 
-        // Annulation : moins de frames rendues que prévu (progressOutOf > 0 et progressCount en deçà).
+        // Annulation : progression nettement en deçà du total attendu (seuil 98 %).
         boolean cancelled = false;
         try {
             int done = this.progressCount;
             int total = this.progressOutOf;
             props.put("progress_count", done);
             props.put("progress_out_of", total);
-            if (total > 0 && done < total) {
-                cancelled = true;
+            if (total > 0) {
+                double ratio = done / (double) total;
+                props.put("completion_ratio", ratio);
+                if (ratio < 0.98) {
+                    cancelled = true;
+                }
             }
         } catch (Throwable ignored) {
             // accès au progrès best-effort
