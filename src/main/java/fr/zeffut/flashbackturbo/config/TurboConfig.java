@@ -69,6 +69,13 @@ public final class TurboConfig {
      */
     public boolean fixExportSetupRace = true;
 
+    /**
+     * Télémétrie PostHog anonyme (toujours active par défaut). Aucune donnée identifiante :
+     * distinct_id = UUID aléatoire local, messages d'exception sanitisés. Mettre à {@code false}
+     * désactive totalement l'envoi (aucun appel réseau, aucun fichier d'id créé).
+     */
+    public boolean enableTelemetry = true;
+
     private TurboConfig() {}
 
     public static TurboConfig current() {
