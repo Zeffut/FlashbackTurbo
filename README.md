@@ -4,10 +4,11 @@
 
 A Fabric addon for [Flashback](https://modrinth.com/mod/flashback) that drastically speeds up video export — **without quality loss**.
 
-> Status: **0.3.9** ([GitHub releases](https://github.com/Zeffut/FlashbackTurbo/releases)).
+> Status: **0.4.0** ([GitHub releases](https://github.com/Zeffut/FlashbackTurbo/releases)).
 > Measured speedup: **10.95× at 1080p** on a real Flashback replay, pixels decoded strictly identical.
 > Plus animated post-export overlay (H8), ~10× faster MP4 finalize via fragmented muxer (H9),
-> and H10 — fixes a Flashback export crash on mid-replay exports.
+> H10 — fixes a Flashback export crash on mid-replay exports, and **anonymous usage telemetry**
+> (0.4.0, opt-out) to prioritise improvements.
 
 ## What it does
 
@@ -25,6 +26,22 @@ FlashbackTurbo patches Flashback's export pipeline via Mixin to replace serial, 
 | **H10** | `ExportJob.setup()` | Fixes a Flashback crash: `setup()` reads `mc.level` after a single `runClientTick`, which is null on a mid-replay export (server seek reloads the world) → `NullPointerException`. Pumps `runClientTick` until the level is loaded. |
 
 All hooks are opt-in via `<game>/config/flashbackturbo.json` and default to safe values. Toggle any of them off to fall back to vanilla Flashback behaviour.
+
+## Telemetry & privacy
+
+Since **0.4.0**, FlashbackTurbo sends **anonymous** usage telemetry (PostHog) to help prioritise
+improvements — which export formats, resolutions and encoders are used, how often each hook fires,
+and **export failures** (the most useful signal for a mod whose job is *not* to break your exports).
+
+- **Anonymous.** Your identifier is a random UUID generated locally (`config/flashbackturbo_telemetry.json`).
+  No username, no IP, no file paths, no world names — exception messages are sanitised before sending.
+- **Fail-safe.** Telemetry runs off the export path and swallows all its own errors. It can never
+  slow down or break an export, even if the network is down.
+- **Opt-out.** Set `"enableTelemetry": false` in `config/flashbackturbo.json` to disable it
+  completely — no network calls, no identifier file created.
+
+Events collected: mod load, export start/finish/failed/cancelled (with format, encoder, resolution,
+framerate, duration), and hook activations (H4/H8/H10).
 
 ## Performance
 
@@ -56,8 +73,8 @@ Flashback already exposes hardware encoders (`h264_nvenc`, `h264_videotoolbox`, 
 
 | MC version | Flashback version | FlashbackTurbo version | Java |
 |------------|-------------------|------------------------|------|
-| 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.3.9` | 21 |
-| 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.3.9+26.1` | 25 |
+| 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.4.0` | 21 |
+| 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.4.0+26.1` | 25 |
 
 Fabric Loader ≥ 0.19.2. Fabric API required.
 
