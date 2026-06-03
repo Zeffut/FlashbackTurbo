@@ -197,7 +197,12 @@ La télémétrie est **strictement non-bloquante et fail-safe** :
 
 1. **Loom × Shadow** : faire cohabiter `remapJar` (Loom) et `shadowJar` est délicat. Point de
    vigilance n°1 ; prévoir un fallback (relocation manuelle ou JIJ) si l'intégration coince.
-2. **Deps transitives de posthog-java** : à auditer (`./gradlew dependencies`) et toutes
-   relocaliser, sinon conflit potentiel.
+   **Résolu à l'implémentation** : `remapJar.inputFile = shadowJar.archiveFile` fonctionne, MAIS
+   il a fallu **Shadow 9.2.2** (pas 8.3.6) car le `RelocatorRemapper` de 8.x est incompatible
+   avec l'ASM 9.9 que fabric-loom 1.16.2 impose au buildscript.
+2. **Deps transitives de posthog-java** : **non pertinent au final** — posthog-java 1.1.1 est un
+   fat-jar qui pré-shade déjà ses deps sous `com.posthog.java.shaded.*`. Relocaliser le seul
+   préfixe `com.posthog` → `fr.zeffut.flashbackturbo.shadow.posthog` capture tout l'arbre
+   (vérifié : 1935 classes relocalisées, 0 classe `com/posthog` nue dans le jar final).
 3. **Mélange de données** avec « Esiee-Paris-Salles » sur le même projet PostHog : mitigé par le
    préfixe `fbt_` mais reste sous-optimal ; envisager un projet dédié plus tard.

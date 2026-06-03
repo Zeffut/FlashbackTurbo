@@ -5,7 +5,6 @@ import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
 import fr.zeffut.flashbackturbo.gui.SavingExportScreen;
 import fr.zeffut.flashbackturbo.telemetry.Telemetry;
-import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
@@ -89,13 +88,9 @@ public abstract class AsyncFFmpegFinishMixin {
         }
         this.fbt$savingActive = false;
 
-        // Émet fbt_export_finished avec les propriétés accumulées + duration_ms, puis clôt le contexte.
-        if (Telemetry.export().isActive()) {
-            Map<String, Object> props = new HashMap<>(Telemetry.export().snapshot(now));
-            props.put("success", true);
-            Telemetry.capture("fbt_export_finished", props);
-            Telemetry.export().end();
-        }
+        // NB : fbt_export_finished + ExportContext.end() sont désormais émis au niveau ExportJob
+        // (run() RETURN), qui couvre AUSSI le PNG sequence writer (lequel n'a pas de finish()
+        // côté FFmpeg). Ici on ne gère plus que l'overlay "Saving…" spécifique au writer FFmpeg.
 
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc != null && mc.currentScreen instanceof SavingExportScreen) {

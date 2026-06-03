@@ -65,8 +65,42 @@ public final class Telemetry {
         }
     }
 
+    /**
+     * Signale un échec d'export à partir d'un {@link Throwable}, en routant tout texte par
+     * {@link Sanitizer} (anti-PII). Fusionne le snapshot du contexte d'export courant puis clôt
+     * ce contexte. No-op si non initialisée. Ne lève jamais.
+     *
+     * @param phase phase logique ("setup"/"export"/"unknown")
+     * @param t     l'exception ayant interrompu l'export (peut être null)
+     */
+    public static void captureExportFailure(String phase, Throwable t) {
+        try {
+            Map<String, Object> props = new HashMap<>(EXPORT.snapshot(System.nanoTime()));
+            props.put("phase", phase != null ? phase : "unknown");
+            if (t != null) {
+                props.put("exception_class", t.getClass().getName());
+                props.put("message", Sanitizer.sanitizeMessage(t.getMessage()));
+                props.put("top_frames", Sanitizer.topFrames(t, 8));
+            }
+            capture("fbt_export_failed", props);
+            EXPORT.end();
+        } catch (Throwable ignored) {
+            FlashbackTurboClient.LOGGER.debug("[telemetry] captureExportFailure ignoré", ignored);
+        }
+    }
+
     /** Flush + ferme le client. Idempotent. Ne lève jamais. */
     public static void shutdown() {
+        try {
+            // Filet de sécurité : si un export était encore actif au moment du quit (donc jamais
+            // terminé proprement), on le signale comme échoué avant de fermer le client.
+            if (EXPORT.isActive()) {
+                EXPORT.put("reason", "incomplete_shutdown");
+                captureExportFailure("unknown", null);
+            }
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.debug("[telemetry] flush incomplete shutdown échoué", t);
+        }
         try {
             PostHog c = client;
             if (c != null) c.shutdown();
