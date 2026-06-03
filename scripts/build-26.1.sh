@@ -80,6 +80,7 @@ buildscript {
 
 plugins {
     id 'net.fabricmc.fabric-loom' version '1.15-SNAPSHOT'
+    id 'com.gradleup.shadow' version '9.2.2'
     id 'maven-publish'
 }
 
@@ -99,6 +100,9 @@ dependencies {
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     def fb = file("libs/${project.flashback_jar}")
     if (fb.exists()) { compileOnly files(fb) }
+    // Télémétrie : posthog shadé + MixinExtras pour @WrapOperation (annotation au compile).
+    implementation "com.posthog.java:posthog:1.1.1"
+    compileOnly "io.github.llamalad7:mixinextras-common:0.5.4"
 }
 
 processResources {
@@ -115,6 +119,18 @@ java {
 }
 
 jar { from('LICENSE') { rename { "${it}_${project.archives_base_name}" } } }
+
+// Télémétrie : posthog 1.1.1 est un fat-jar (deps sous com.posthog.java.shaded.*) → relocaliser
+// le seul préfixe com.posthog capture tout. remapJar prend la sortie du shadowJar en entrée.
+// 26.1 = mappings Mojang, AUCUN remapJar Loom → le shadowJar EST le jar final.
+// posthog 1.1.1 est un fat-jar (deps sous com.posthog.java.shaded.*) → relocaliser com.posthog suffit.
+tasks.named('shadowJar') {
+    configurations = [project.configurations.runtimeClasspath]
+    dependencies { include(dependency('com.posthog.java:posthog')) }
+    relocate 'com.posthog', 'fr.zeffut.flashbackturbo.shadow.posthog'
+    archiveClassifier = 'shadow'
+}
+tasks.named('build') { dependsOn tasks.named('shadowJar') }
 GRADLE
 
 # gradle.properties pour 26.1.2
@@ -146,15 +162,22 @@ with open(p,'w') as f: json.dump(d, f, indent=2)
 PY
 
 echo "[26.1] building (Loom 1.15-SNAPSHOT, JDK 25)"
-JAVA_HOME=$JAVA25 ./gradlew clean build --no-daemon 2>&1 | tail -10
+# Tests déjà validés dans le build principal 1.21.x ; le fork 26.1 est une distribution mécanique
+# (pas de JUnit dans son build.gradle) → on exclut la compilation/exécution des tests.
+JAVA_HOME=$JAVA25 ./gradlew clean build shadowJar -x test -x compileTestJava --no-daemon 2>&1 | tail -15
 
-JAR=$(ls -t build/libs/flashbackturbo-*.jar 2>/dev/null | grep -v sources | head -1)
-if [[ -n "$JAR" && -f "$JAR" ]]; then
+# Le jar shadé (-shadow) est l'artefact final ; on le renomme sans classifier pour la publication.
+SHADOW=$(ls -t build/libs/flashbackturbo-*-shadow.jar 2>/dev/null | head -1)
+if [[ -n "$SHADOW" && -f "$SHADOW" ]]; then
+    FINAL="${SHADOW%-shadow.jar}.jar"
+    cp -f "$SHADOW" "$FINAL"
     echo ""
-    echo "[26.1] ✅ build OK → $JAR"
-    ls -la "$JAR"
+    echo "[26.1] ✅ build OK (shadé) → $FINAL"
+    ls -la "$FINAL"
+    # Vérif relocation
+    echo "[26.1] posthog relocalisé: $(jar tf "$FINAL" | grep -c '^fr/zeffut/flashbackturbo/shadow/posthog/') | com/posthog nu: $(jar tf "$FINAL" | grep -c '^com/posthog/.*\.class')"
 else
     echo ""
-    echo "[26.1] ❌ build failed"
+    echo "[26.1] ❌ build failed (pas de jar shadé)"
     exit 1
 fi
