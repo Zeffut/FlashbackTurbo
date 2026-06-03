@@ -1,5 +1,6 @@
 plugins {
     id 'fabric-loom' version '1.16.2'
+    id 'com.gradleup.shadow' version '9.2.2'
     id 'maven-publish'
 }
 
@@ -32,6 +33,12 @@ dependencies {
     } else {
         logger.warn("[FlashbackTurbo] libs/${project.flashback_jar} absent — lancer scripts/fetch-flashback.sh avant build.")
     }
+
+    // Télémétrie — shadée + relocalisée (voir shadowJar) pour éviter tout conflit de classloader.
+    implementation "com.posthog.java:posthog:1.1.1"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.10.2"
 }
 
 processResources {
@@ -51,9 +58,33 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+test {
+    useJUnitPlatform()
+}
+
 jar {
     from('LICENSE') {
         rename { "${it}_${project.archives_base_name}" }
     }
+}
+
+// PostHog SDK shadé + relocalisé pour éviter tout conflit de classloader avec
+// d'autres mods. La 1.1.1 publie déjà ses deps runtime (okhttp3/kotlin/okio/
+// org.json/org.jetbrains/org.intellij.lang) relocalisées sous com.posthog.java.shaded.*,
+// donc relocaliser le seul préfixe `com.posthog` capture tout l'arbre.
+shadowJar {
+    configurations = [project.configurations.runtimeClasspath]
+    dependencies {
+        include(dependency('com.posthog.java:posthog'))
+    }
+    relocate 'com.posthog', 'fr.zeffut.flashbackturbo.shadow.posthog'
+    archiveClassifier = 'shadow'
+}
+
+// Loom × Shadow : on fait pointer l'entrée de remapJar sur l'archive du shadowJar
+// pour que les classes relocalisées atterrissent dans le jar remappé final.
+remapJar {
+    dependsOn shadowJar
+    inputFile = shadowJar.archiveFile
 }
 

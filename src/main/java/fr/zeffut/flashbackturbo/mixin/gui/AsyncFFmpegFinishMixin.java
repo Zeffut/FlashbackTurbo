@@ -4,6 +4,8 @@ import com.moulberry.flashback.exporting.AsyncFFmpegVideoWriter;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
 import fr.zeffut.flashbackturbo.gui.SavingExportScreen;
+import fr.zeffut.flashbackturbo.telemetry.Telemetry;
+import java.util.Map;
 import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
@@ -39,6 +41,7 @@ public abstract class AsyncFFmpegFinishMixin {
     @Unique private static final long FBT$REDRAW_INTERVAL_NS = 250_000_000L; // 4 fps
     @Unique private long fbt$lastRedrawNs = 0L;
     @Unique private boolean fbt$savingActive = false;
+    @Unique private long fbt$finishStartNs = 0L;
 
     @Inject(method = "finish", at = @At("HEAD"), require = 0)
     private void fbt$installSavingScreen(CallbackInfo ci) {
@@ -47,6 +50,7 @@ public abstract class AsyncFFmpegFinishMixin {
         if (mc == null) return;
         mc.setScreen(new SavingExportScreen());
         this.fbt$savingActive = true;
+        this.fbt$finishStartNs = System.nanoTime();
         this.fbt$lastRedrawNs = 0L;
         // Premier render immédiat pour montrer l'écran tout de suite.
         fbt$tryRender(mc);
@@ -77,12 +81,17 @@ public abstract class AsyncFFmpegFinishMixin {
 
     @Inject(method = "finish", at = @At("TAIL"), require = 0)
     private void fbt$disableSaving(CallbackInfo ci) {
+        long now = System.nanoTime();
+        if (this.fbt$savingActive && this.fbt$finishStartNs > 0L) {
+            long shownMs = (now - this.fbt$finishStartNs) / 1_000_000L;
+            Telemetry.capture("fbt_saving_overlay_shown", Map.of("shown_ms", shownMs));
+        }
         this.fbt$savingActive = false;
-        // Cleanup explicite : ExportJob.setup() fait setScreen(null) AVANT la boucle d'export
-        // (ligne 588), pas après. Donc rien ne reset mc.screen après finish(). Sans ce cleanup,
-        // notre SavingExportScreen reste dans mc.screen après l'export — visuellement masqué
-        // par ReplayUI / l'editor ImGui qui reprend, mais état pas propre (mouse events,
-        // visible si user ferme l'editor avant que MC re-render).
+
+        // NB : fbt_export_finished + ExportContext.end() sont désormais émis au niveau ExportJob
+        // (run() RETURN), qui couvre AUSSI le PNG sequence writer (lequel n'a pas de finish()
+        // côté FFmpeg). Ici on ne gère plus que l'overlay "Saving…" spécifique au writer FFmpeg.
+
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc != null && mc.currentScreen instanceof SavingExportScreen) {
             mc.setScreen(null);

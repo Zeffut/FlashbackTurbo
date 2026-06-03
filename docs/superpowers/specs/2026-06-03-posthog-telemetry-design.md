@@ -166,6 +166,23 @@ Le partage d'état entre call-sites (ex. timestamp de début d'export pour calcu
 passe par des champs statiques thread-safe dans `Telemetry` ou une petite classe
 `ExportTracker` interne — choix arrêté en implémentation.
 
+## Statut d'implémentation (2026-06-03)
+
+Implémenté + buildé (branche `feat/posthog-telemetry`) :
+- Events live : `fbt_mod_loaded`, `fbt_export_started` (enrichi : container/format/codec/encoder/
+  width/height/framerate/frame_count/transparent/ssaa/bitrate via `ExportJob.getSettings()`),
+  `fbt_export_finished`, `fbt_export_failed`, `fbt_export_cancelled`, `fbt_setup_race_recovered`,
+  `fbt_resolution_cap_lifted`, `fbt_saving_overlay_shown`.
+- `fbt_export_finished`/`cancelled` émis au niveau `ExportJob.run()` RETURN → couvre **MP4 ET PNG**.
+- `fbt_export_failed` : exception réelle capturée via MixinExtras `@WrapOperation` autour de
+  `doExport` (classe/message sanitisé/top_frames, rethrow inchangé) + filet « incomplete » au
+  prochain `setup` HEAD et dans `shutdown()` + timeout H10.
+- Sanitizer câblé sur les messages d'exception.
+- Smoke test réseau validé : event reçu dans PostHog EU (clé `phc_` + host `eu.i.posthog.com` OK).
+
+Reste réellement deferred (non bloquant) : `fbt_fragmented_mp4_used` (H9) et
+`fbt_parallel_png_used` (compteurs du writer PNG) — métriques fines de perf, à ajouter plus tard.
+
 ## Confidentialité
 
 - 100 % anonyme : `distinct_id` = UUID aléatoire local, jamais de PII.
@@ -197,7 +214,12 @@ La télémétrie est **strictement non-bloquante et fail-safe** :
 
 1. **Loom × Shadow** : faire cohabiter `remapJar` (Loom) et `shadowJar` est délicat. Point de
    vigilance n°1 ; prévoir un fallback (relocation manuelle ou JIJ) si l'intégration coince.
-2. **Deps transitives de posthog-java** : à auditer (`./gradlew dependencies`) et toutes
-   relocaliser, sinon conflit potentiel.
+   **Résolu à l'implémentation** : `remapJar.inputFile = shadowJar.archiveFile` fonctionne, MAIS
+   il a fallu **Shadow 9.2.2** (pas 8.3.6) car le `RelocatorRemapper` de 8.x est incompatible
+   avec l'ASM 9.9 que fabric-loom 1.16.2 impose au buildscript.
+2. **Deps transitives de posthog-java** : **non pertinent au final** — posthog-java 1.1.1 est un
+   fat-jar qui pré-shade déjà ses deps sous `com.posthog.java.shaded.*`. Relocaliser le seul
+   préfixe `com.posthog` → `fr.zeffut.flashbackturbo.shadow.posthog` capture tout l'arbre
+   (vérifié : 1935 classes relocalisées, 0 classe `com/posthog` nue dans le jar final).
 3. **Mélange de données** avec « Esiee-Paris-Salles » sur le même projet PostHog : mitigé par le
    préfixe `fbt_` mais reste sous-optimal ; envisager un projet dédié plus tard.
