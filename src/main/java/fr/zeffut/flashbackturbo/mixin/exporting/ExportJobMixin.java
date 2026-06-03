@@ -1,7 +1,11 @@
 package fr.zeffut.flashbackturbo.mixin.exporting;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.moulberry.flashback.exporting.ExportJob;
 import com.moulberry.flashback.exporting.ExportSettings;
+import com.moulberry.flashback.exporting.SaveableFramebufferQueue;
+import com.moulberry.flashback.exporting.VideoWriter;
 import com.moulberry.flashback.playback.ReplayServer;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
@@ -141,6 +145,45 @@ public abstract class ExportJobMixin {
             Telemetry.capture("fbt_export_finished", props);
         }
         ctx.end();
+    }
+
+    /**
+     * Enveloppe l'appel à {@code doExport} pour intercepter toute exception non gérée et émettre
+     * {@code fbt_export_failed} avec le vrai throwable avant de le relancer intact.
+     *
+     * <p>{@code require = 0} : si Flashback renomme {@code doExport} dans une future version,
+     * l'injection est silencieusement ignorée plutôt que de crasher au chargement du mod.
+     *
+     * <p>En cas de succès, ce hook n'émet rien : l'event {@code fbt_export_finished} /
+     * {@code fbt_export_cancelled} est produit par le RETURN inject de {@code run()}.
+     *
+     * <p>{@link Telemetry#captureExportFailure} appelle déjà {@link ExportContext#end()},
+     * ce qui empêche le filet incomplete-detection (setup HEAD) de double-firer.
+     */
+    @WrapOperation(
+        method = "run",
+        at = @At(
+            value = "INVOKE",
+            target = "Lcom/moulberry/flashback/exporting/ExportJob;doExport(Lcom/moulberry/flashback/exporting/VideoWriter;Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;)V"
+        ),
+        require = 0
+    )
+    private void flashbackturbo$captureExportFailure(
+            ExportJob self,
+            VideoWriter videoWriter,
+            SaveableFramebufferQueue framebufferQueue,
+            Operation<Void> original) {
+        try {
+            original.call(self, videoWriter, framebufferQueue);
+        } catch (Throwable t) {
+            try {
+                Telemetry.captureExportFailure("export", t);
+                // captureExportFailure appelle déjà EXPORT.end() — pas de double-appel nécessaire.
+            } catch (Throwable ignored) {
+                // Filet de sécurité : la télémétrie ne doit jamais altérer le comportement de l'export.
+            }
+            throw t; // Relance le throwable original inchangé pour que Flashback gère l'erreur normalement.
+        }
     }
 
     @Inject(
