@@ -4,7 +4,10 @@ import com.moulberry.flashback.exporting.ExportJob;
 import com.moulberry.flashback.playback.ReplayServer;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
+import fr.zeffut.flashbackturbo.telemetry.Telemetry;
 import net.minecraft.client.MinecraftClient;
+import java.util.HashMap;
+import java.util.Map;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
@@ -40,6 +43,12 @@ public abstract class ExportJobMixin {
     @Invoker("runClientTick")
     abstract void flashbackturbo$runClientTick(boolean paused);
 
+    @Inject(method = "setup", at = @At("HEAD"), require = 0)
+    private void flashbackturbo$telemetryExportStart(ReplayServer replayServer, CallbackInfo ci) {
+        Telemetry.export().begin(System.nanoTime());
+        Telemetry.capture("fbt_export_started", null);
+    }
+
     @Inject(
         method = "setup",
         at = @At(
@@ -69,12 +78,21 @@ public abstract class ExportJobMixin {
             }
         }
 
-        if (mc.world == null) {
+        boolean timeoutHit = mc.world == null;
+        long waitMs = (System.nanoTime() - (deadlineNs - 60_000_000_000L)) / 1_000_000L;
+        if (timeoutHit) {
             FlashbackTurboClient.LOGGER.warn(
                 "[H10] mc.level toujours null après {} runClientTick — race ExportJob.setup non contournée", ticks);
         } else if (ticks > 0) {
             FlashbackTurboClient.LOGGER.info(
                 "[H10] monde du replay chargé après {} runClientTick supplémentaires — race ExportJob.setup contournée", ticks);
+        }
+        if (ticks > 0) {
+            Map<String, Object> props = new HashMap<>();
+            props.put("ticks_pumped", ticks);
+            props.put("wait_ms", waitMs);
+            props.put("timeout_hit", timeoutHit);
+            Telemetry.capture("fbt_setup_race_recovered", props);
         }
     }
 }

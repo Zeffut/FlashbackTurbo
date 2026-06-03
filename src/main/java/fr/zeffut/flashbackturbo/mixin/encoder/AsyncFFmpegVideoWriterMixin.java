@@ -4,6 +4,8 @@ import com.moulberry.flashback.exporting.AsyncFFmpegVideoWriter;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
 import fr.zeffut.flashbackturbo.encoder.EncoderTuning;
+import fr.zeffut.flashbackturbo.telemetry.Telemetry;
+import java.util.Map;
 import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -43,6 +45,7 @@ public abstract class AsyncFFmpegVideoWriterMixin {
     private int flashbackturbo$liftResolutionCap(int original) {
         if (TurboConfig.current().liftResolutionCap) {
             FlashbackTurboClient.LOGGER.info("[H4] cap résolution levé (était {})", original);
+            Telemetry.capture("fbt_resolution_cap_lifted", Map.of("original_max_area", original));
             return Integer.MAX_VALUE;
         }
         return original;
