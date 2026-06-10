@@ -4,9 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Holder best-effort du vendor/renderer GL de Minecraft. Rempli une seule fois depuis le render
- * thread (où le contexte GL est courant) via {@link #captureFromGl}. Si jamais rempli, {@link
- * #snapshot()} renvoie une map vide → les propriétés sont simplement omises de la télémétrie.
+ * Holder best-effort du vendor/renderer GL de Minecraft. Rempli une seule fois depuis le thread
+ * client (END_CLIENT_TICK, où le contexte GL est courant) via {@link #captureFromGl}. Si jamais
+ * rempli, {@link #snapshot()} renvoie une map vide → les propriétés sont omises de la télémétrie.
  */
 public final class GpuInfo {
 
