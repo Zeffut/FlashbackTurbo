@@ -77,3 +77,41 @@ Déplacer la conversion couleur sur le GPU, dans un shader exécuté pendant le 
 ### Pourquoi déférée
 
 L'implémentation requiert une session de test sur MC + Flashback en runtime avec des replays réels, sur plusieurs GPU. Ne peut pas être validée par tests unitaires seuls. La justifier économiquement nécessite d'abord le benchmark baseline qui n'a pas été fait.
+
+## H11 — Promotion software→hardware encode ✅ (0.5.0)
+
+### Problème
+
+~13 % des exports Windows passent par `libopenh264` (seul encodeur software H.264 du FFmpeg
+bytedeco LGPL — pas de libx264). Mesuré en télémétrie : médiane **54,7 s** sur des CPU **6-12
+cœurs** (libopenh264 est quasi mono-thread → CPU sous-exploité). Or `h264_nvenc` (NVIDIA) et
+`h264_qsv` (Intel) sont compilés dans le même FFmpeg, juste non sélectionnés par Flashback quand
+l'utilisateur choisit « H.264 » générique.
+
+### Solution
+
+Dans le `@Redirect` existant sur `recorder.start()` (H6) : si l'encodeur est `libopenh264` et que
+la config `promoteSoftwareToHardwareEncode` est active, on probe une seule fois (mémoïsé) les
+encodeurs HW par un mini-recorder 64×64 jetable, et on redirige vers le premier utilisable
+(`h264_nvenc` > `h264_qsv` ; `h264_mf` exclu car mesuré plus lent que libopenh264, `h264_amf` non
+compilé). Fail-safe total : toute erreur de probe/promotion ou un `start()` HW qui échoue ⇒ retour
+silencieux sur `libopenh264`, l'export ne casse jamais.
+
+Filet complémentaire : pour les configs réellement sans GPU encode (qui restent en libopenh264), on
+pousse `slices = min(cœurs, 8)` à OpenH264 pour exploiter les cœurs (gain modeste, gratuit).
+
+### Composants
+
+- `encoder/EncoderPromotion` — décision pure (testée).
+- `encoder/HwEncoderProbe` — sélection pure + opener FFmpeg natif mémoïsé (testé côté pur).
+- `encoder/ExportContextHolder` — pose `encoder_promoted_from/to` sur le contexte d'export.
+- `mixin/encoder/AsyncFFmpegVideoWriterMixin` — câblage + fallback.
+- `telemetry/GpuInfo` + `DeviceProfile` — super-properties `gpu_vendor`/`gpu_renderer`.
+- Events : `fbt_hw_promotion_probe` (one-shot/session), `encoder_promoted_*` sur `fbt_export_started`.
+
+### Gain attendu
+
+Estimation d'après la télémétrie terrain (libopenh264 ~55 s vs nvenc ~8,5 s / qsv ~23 s sur clips
+1080p comparables) : **~3-6×** selon le GPU, qualité préservée (SSIM ≥ 0.99). **Chiffre exact à
+confirmer par bench en jeu sur une machine Windows/Linux avec GPU NVIDIA/Intel** (cf.
+`scripts/ssim-compare.sh`) — non mesurable sur macOS (ni nvenc ni qsv ; le HW Mac = videotoolbox, déjà sélectionné par Flashback).
