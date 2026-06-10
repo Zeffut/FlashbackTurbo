@@ -9,6 +9,12 @@ A Fabric addon for [Flashback](https://modrinth.com/mod/flashback) that drastica
 > Plus animated post-export overlay (H8), ~10× faster MP4 finalize via fragmented muxer (H9),
 > H10 — fixes a Flashback export crash on mid-replay exports, and **anonymous usage telemetry**
 > (0.4.0, opt-out) to prioritise improvements.
+>
+> **Proven in the field.** Validated across hundreds of real anonymous exports on **Windows
+> (primary platform), macOS and Linux** — fastest on an NVIDIA GPU (~8.5 s for a 1080p 60 fps
+> clip). Export failure rate **~1 %**, and every observed failure was external (not enough RAM
+> allocated for very long replays, or the game closed mid-export) — never a regression from
+> FlashbackTurbo itself.
 
 ## What it does
 
@@ -19,7 +25,7 @@ FlashbackTurbo patches Flashback's export pipeline via Mixin to replace serial, 
 | **H2** | `PNGSequenceVideoWriter` | Parallel PNG writer using N-1 threads |
 | **H3** | `NativeImage.writeToFile` redirect | Configurable zlib level (default L1 instead of Mojang's hardcoded L6) |
 | **H4** | `AsyncFFmpegVideoWriter` ctor | Removed the silent 4K downscale cap |
-| **H6** | `AsyncFFmpegVideoWriter.start()` | FFmpeg threading tunes per encoder (nvenc, qsv, amf, x264) |
+| **H6** | `AsyncFFmpegVideoWriter.start()` | FFmpeg threading tunes per encoder (nvenc, qsv, videotoolbox, libopenh264) |
 | **H7** | `PNGSequenceVideoWriter.encode()` | PNG color type 2 (RGB) when transparency is off, eliminates alpha cleanup loop |
 | **H8** | `AsyncFFmpegVideoWriter.finish()` | Animated "Saving..." overlay during post-export finalize phase (Flashback's own progress display doesn't update once export loop ends) |
 | **H9** | `AsyncFFmpegVideoWriter` recorder options | Fragmented MP4 (`movflags=+frag_keyframe+empty_moov`) on hardware encoders — eliminates the moov atom rewrite, ~10× faster finalize |
@@ -45,6 +51,8 @@ framerate, duration), and hook activations (H4/H8/H10).
 
 ## Performance
 
+### Controlled benchmark (PNG sequence path)
+
 Measured on a real 1.21.11 Flashback replay, 10-second slice at 1920×1080 (603 frames):
 
 | Mode    | Total time | Per frame |
@@ -59,6 +67,21 @@ Gains scale with CPU core count and disk speed:
 - 4-core + SSD: ~4-6×
 - 2-core + HDD: ~2-3× (parallelism limited)
 
+### Real-world field data (MP4 export)
+
+Median export time across real anonymous exports (telemetry, ~1080p clips), by encoder:
+
+| Platform · encoder        | Median export |
+|---------------------------|---------------|
+| Windows · NVIDIA `h264_nvenc` | **~8.5 s** (60 fps) |
+| Windows · Intel `h264_qsv`    | ~23 s (60 fps) |
+| macOS · `h264_videotoolbox`   | ~26 s (30 fps) |
+| Software fallback `libopenh264` | ~55 s |
+
+The fastest path is Windows + an NVIDIA GPU. The slowest is the pure-software fallback
+(`libopenh264`) on machines where no hardware encoder is picked — the next release targets
+exactly this case by auto-promoting those exports to the GPU encoder when one is available.
+
 ## Quality
 
 **Lossless PNG output.** zlib level only changes file size, decoded pixels are bit-identical. Color type 2 vs 6 (RGB vs RGBA) only differs when transparency is disabled — visually identical.
@@ -67,7 +90,11 @@ For the FFmpeg side (H4 + H6), output is byte-identical to vanilla (threading tu
 
 ## Hardware encoders
 
-Flashback already exposes hardware encoders (`h264_nvenc`, `h264_videotoolbox`, `h264_qsv`, `h264_amf`, etc.) via its export UI dropdown — **FlashbackTurbo doesn't replace that selection logic**. Just pick the hardware encoder in Flashback's UI; FlashbackTurbo's H6 will tune its threading on top.
+Flashback's bundled FFmpeg (bytedeco, LGPL) ships these H.264 encoders: `libopenh264` (software),
+`h264_nvenc` (NVIDIA), `h264_qsv` (Intel) and `h264_videotoolbox` (macOS). Pick the hardware
+encoder in Flashback's export UI for the fastest result; FlashbackTurbo's H6 tunes its threading
+on top. (Note: `libx264` is **not** in the bundled build — that's why "H.264" defaults to the
+slower `libopenh264` when no hardware encoder is selected.)
 
 ## Compatibility
 
