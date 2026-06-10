@@ -39,7 +39,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 public abstract class AsyncFFmpegVideoWriterMixin {
 
     @org.spongepowered.asm.mixin.Unique
-    private static boolean flashbackturbo$hwProbeReported = false;
+    private static volatile boolean flashbackturbo$hwProbeReported = false;
 
     @ModifyConstant(
         method = "<init>",
