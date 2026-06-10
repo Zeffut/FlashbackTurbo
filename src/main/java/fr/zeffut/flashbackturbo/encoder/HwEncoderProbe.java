@@ -17,6 +17,57 @@ public final class HwEncoderProbe {
     /** Candidats par ordre de préférence. h264_mf exclu (95 s mesuré > openh264) ; amf non compilé. */
     public static final List<String> DEFAULT_CANDIDATES = List.of("h264_nvenc", "h264_qsv");
 
+    private static volatile Optional<String> cached; // null = pas encore probé
+
+    /** Résultat du probe (pour la télémétrie). */
+    public record ProbeResult(java.util.List<String> probed, String selected, long probeMs) {}
+
+    private static volatile ProbeResult lastResult;
+
+    /** Meilleur encodeur HW utilisable, probé une seule fois puis mémoïsé. Best-effort. */
+    public static synchronized Optional<String> bestH264Hardware() {
+        if (cached != null) return cached;
+        long start = System.nanoTime();
+        Optional<String> sel = select(DEFAULT_CANDIDATES, realOpener());
+        long ms = (System.nanoTime() - start) / 1_000_000L;
+        cached = sel;
+        lastResult = new ProbeResult(DEFAULT_CANDIDATES, sel.orElse(null), ms);
+        return sel;
+    }
+
+    /** Dernier résultat de probe (null si jamais probé). Pour la télémétrie. */
+    public static ProbeResult lastResult() { return lastResult; }
+
+    /**
+     * Opener réel : tente de démarrer un {@code FFmpegFrameRecorder} 64×64 mp4 vers un fichier
+     * temporaire avec l'encodeur demandé. Réussit ⇒ encodeur utilisable. Tout échec ⇒ false.
+     */
+    private static Predicate<String> realOpener() {
+        return name -> {
+            java.io.File tmp = null;
+            org.bytedeco.javacv.FFmpegFrameRecorder rec = null;
+            try {
+                tmp = java.io.File.createTempFile("fbt-probe-", ".mp4");
+                rec = new org.bytedeco.javacv.FFmpegFrameRecorder(tmp, 64, 64);
+                rec.setFormat("mp4");
+                rec.setVideoCodecName(name);
+                rec.setFrameRate(30);
+                rec.start();
+                try (org.bytedeco.javacv.Java2DFrameConverter conv = new org.bytedeco.javacv.Java2DFrameConverter()) {
+                    java.awt.image.BufferedImage img =
+                        new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_3BYTE_BGR);
+                    rec.record(conv.convert(img));
+                }
+                return true;
+            } catch (Throwable t) {
+                return false;
+            } finally {
+                if (rec != null) { try { rec.stop(); } catch (Throwable ignored) {} try { rec.release(); } catch (Throwable ignored) {} }
+                if (tmp != null) { try { tmp.delete(); } catch (Throwable ignored) {} }
+            }
+        };
+    }
+
     private HwEncoderProbe() {}
 
     /**
