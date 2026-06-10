@@ -39,6 +39,10 @@ public final class Telemetry {
                 FlashbackTurboClient.LOGGER.info("[telemetry] désactivée (enableTelemetry=false)");
                 return;
             }
+            if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
+                FlashbackTurboClient.LOGGER.info("[telemetry] désactivée (environnement de développement)");
+                return; // client reste null → capture()/captureForApp() no-op ; AutoUpdate continue de logger
+            }
             Path idFile = FabricLoader.getInstance().getConfigDir().resolve(ID_FILENAME);
             distinctId = AnonymousId.loadOrCreate(idFile);
             superProps = DeviceProfile.collect();
@@ -62,6 +66,28 @@ public final class Telemetry {
             c.capture(distinctId, event, merged);
         } catch (Throwable t) {
             FlashbackTurboClient.LOGGER.debug("[telemetry] capture('{}') échouée", event, t);
+        }
+    }
+
+    /**
+     * Comme {@link #capture}, mais segmente l'event sous un {@code app} explicite (ex. "autoupdate")
+     * et attache source / versions MC & mod. Utilisé par les modules transverses (AutoUpdate) qui
+     * partagent le projet PostHog. No-op si non initialisée (donc aussi en dev). Ne lève jamais.
+     */
+    public static void captureForApp(String app, String event, String source,
+                                     String mcVersion, String modVersion, Map<String, Object> props) {
+        try {
+            PostHog c = client;
+            if (c == null || distinctId == null) return;
+            Map<String, Object> merged = new HashMap<>(superProps);
+            if (props != null) merged.putAll(props);
+            merged.put("app", app);
+            if (source != null) merged.put("source", source);
+            if (mcVersion != null) merged.put("mc_version", mcVersion);
+            if (modVersion != null) merged.put("mod_version", modVersion);
+            c.capture(distinctId, event, merged);
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.debug("[telemetry] captureForApp('{}') échouée", event, t);
         }
     }
 
