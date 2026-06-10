@@ -4,7 +4,7 @@
 
 A Fabric addon for [Flashback](https://modrinth.com/mod/flashback) that drastically speeds up video export — **without quality loss**.
 
-> Status: **0.5.0** ([GitHub releases](https://github.com/Zeffut/FlashbackTurbo/releases)).
+> Status: **0.6.0** ([GitHub releases](https://github.com/Zeffut/FlashbackTurbo/releases)).
 > Measured speedup: **10.95× at 1080p** on a real Flashback replay, pixels decoded strictly identical.
 > Plus animated post-export overlay (H8), ~10× faster MP4 finalize via fragmented muxer (H9),
 > H10 — fixes a Flashback export crash on mid-replay exports, and **anonymous usage telemetry**
@@ -97,12 +97,33 @@ encoder in Flashback's export UI for the fastest result; FlashbackTurbo's H6 tun
 on top. (Note: `libx264` is **not** in the bundled build — that's why "H.264" defaults to the
 slower `libopenh264` when no hardware encoder is selected.)
 
+## Auto-update
+
+Since **0.6.0**, FlashbackTurbo silently keeps your Zeffut mods up to date. On launch, a background
+thread hashes the jars in `mods/`, asks Modrinth for the latest matching version (current loader +
+MC version), downloads verified updates into `.autoupdate/staging/`, and swaps them in at game exit
+(a detached helper finishes the swap on Windows where jars stay locked). Only mods owned by the
+configured account are touched.
+
+Opt-out / tune in `config/flashbackturbo.json`:
+
+```json
+{
+  "autoUpdate": true,
+  "updateOwner": "Zeffut",
+  "updateAll": false,
+  "updateExclude": ""
+}
+```
+
+Set `"autoUpdate": false` to disable. Override at runtime with `-Dautoupdate.enabled=false`.
+
 ## Compatibility
 
 | MC version | Flashback version | FlashbackTurbo version | Java |
 |------------|-------------------|------------------------|------|
-| 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.5.0` | 21 |
-| 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.5.0+26.1` | 25 |
+| 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.6.0` | 21 |
+| 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.6.0+26.1` | 25 |
 
 Fabric Loader ≥ 0.19.2. Fabric API required.
 

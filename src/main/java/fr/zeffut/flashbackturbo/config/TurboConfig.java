@@ -84,6 +84,29 @@ public final class TurboConfig {
      */
     public boolean enableTelemetry = true;
 
+    /** AutoUpdate : mise à jour silencieuse des mods Zeffut via Modrinth (défaut activé). */
+    public boolean autoUpdate = true;
+    /** AutoUpdate : si true, met à jour TOUS les mods Modrinth (pas seulement ceux de update_owner). */
+    public boolean updateAll = false;
+    /** AutoUpdate : compte Modrinth dont les mods sont éligibles à la mise à jour. */
+    public String updateOwner = "Zeffut";
+    /** AutoUpdate : slugs/ids de projets à exclure de la mise à jour, séparés par des virgules. */
+    public String updateExclude = "";
+
+    /**
+     * Accès « clé→valeur string » utilisé par le module AutoUpdate (mappe les 4 options ci-dessus).
+     * Renvoie {@code fallback} pour toute clé inconnue.
+     */
+    public String setting(String key, String fallback) {
+        return switch (key) {
+            case "auto_update" -> String.valueOf(autoUpdate);
+            case "update_all" -> String.valueOf(updateAll);
+            case "update_owner" -> updateOwner != null ? updateOwner : fallback;
+            case "update_exclude" -> updateExclude != null ? updateExclude : fallback;
+            default -> fallback;
+        };
+    }
+
     private TurboConfig() {}
 
     public static TurboConfig current() {
