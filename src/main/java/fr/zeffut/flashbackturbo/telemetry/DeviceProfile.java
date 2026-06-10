@@ -45,6 +45,7 @@ public final class DeviceProfile {
         } catch (Throwable t) {
             // best-effort : on renvoie ce qu'on a pu collecter
         }
+            p.putAll(GpuInfo.snapshot()); // gpu_vendor/gpu_renderer si déjà capturés (best-effort)
         return p;
     }
 
