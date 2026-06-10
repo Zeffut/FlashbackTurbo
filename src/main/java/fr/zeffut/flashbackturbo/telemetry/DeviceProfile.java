@@ -41,6 +41,7 @@ public final class DeviceProfile {
             p.put("cfg_showExportProgressOverlay", cfg.showExportProgressOverlay);
             p.put("cfg_useFragmentedMp4OnHwEncoders", cfg.useFragmentedMp4OnHwEncoders);
             p.put("cfg_fixExportSetupRace", cfg.fixExportSetupRace);
+            p.put("cfg_promoteSoftwareToHardwareEncode", cfg.promoteSoftwareToHardwareEncode);
         } catch (Throwable t) {
             // best-effort : on renvoie ce qu'on a pu collecter
         }
