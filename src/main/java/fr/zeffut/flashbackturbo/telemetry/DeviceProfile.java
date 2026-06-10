@@ -41,9 +41,13 @@ public final class DeviceProfile {
             p.put("cfg_showExportProgressOverlay", cfg.showExportProgressOverlay);
             p.put("cfg_useFragmentedMp4OnHwEncoders", cfg.useFragmentedMp4OnHwEncoders);
             p.put("cfg_fixExportSetupRace", cfg.fixExportSetupRace);
+            p.put("cfg_promoteSoftwareToHardwareEncode", cfg.promoteSoftwareToHardwareEncode);
         } catch (Throwable t) {
             // best-effort : on renvoie ce qu'on a pu collecter
         }
+        // Hors try/catch : snapshot() est pur et ne lève jamais ; on ajoute toujours le GPU s'il
+        // a déjà été capturé (sans l'enfouir dans le catch best-effort ci-dessus).
+        p.putAll(GpuInfo.snapshot()); // gpu_vendor/gpu_renderer si déjà capturés (best-effort)
         return p;
     }
 

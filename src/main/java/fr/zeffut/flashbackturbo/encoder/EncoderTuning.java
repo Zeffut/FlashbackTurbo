@@ -27,6 +27,11 @@ public final class EncoderTuning {
 
     private EncoderTuning() {}
 
+    /** Nombre de slices OpenH264 = cœurs plafonné à 8, au moins 1. Pur, testable. */
+    public static int openh264Slices(int cores) {
+        return Math.max(1, Math.min(8, cores));
+    }
+
     /** Applique les tunes adaptés à l'encoder courant du recorder. À appeler avant {@code recorder.start()}.
      *
      * <p>Aucun setOption/setVideoOption n'est laissé non protégé : si une version de FFmpeg
@@ -74,6 +79,13 @@ public final class EncoderTuning {
             case "h264_videotoolbox", "hevc_videotoolbox" -> {
                 // videotoolbox (macOS) : pas de tune threading particulier, mais on flag pour movflags.
                 isHwEncoder = true;
+            }
+            case "libopenh264" -> {
+                // OpenH264 est quasi mono-thread via 'threads' seul ; 'slices' découpe la frame en
+                // tranches encodables en parallèle → exploite les cœurs sur les configs sans GPU encode.
+                if (recorder.getVideoOption("slices") == null) {
+                    tryVideoOption(recorder, "slices", Integer.toString(openh264Slices(CPU_CORES)));
+                }
             }
             default -> {
                 // Encoders inconnus (libaom-av1, libsvtav1) : on ne touche à rien.

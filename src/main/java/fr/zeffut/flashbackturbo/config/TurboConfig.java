@@ -70,6 +70,14 @@ public final class TurboConfig {
     public boolean fixExportSetupRace = true;
 
     /**
+     * H11 : si Flashback encode en {@code libopenh264} (software, mono-thread, lent) mais qu'un
+     * encodeur matériel ({@code h264_nvenc} puis {@code h264_qsv}) est réellement utilisable,
+     * redirige l'export vers lui. ~4-6× plus rapide, qualité égale ou supérieure à débit égal.
+     * Fail-safe : si la promotion échoue au démarrage, on retombe sur {@code libopenh264}.
+     */
+    public boolean promoteSoftwareToHardwareEncode = true;
+
+    /**
      * Télémétrie PostHog anonyme (toujours active par défaut). Aucune donnée identifiante :
      * distinct_id = UUID aléatoire local, messages d'exception sanitisés. Mettre à {@code false}
      * désactive totalement l'envoi (aucun appel réseau, aucun fichier d'id créé).
