@@ -18,6 +18,9 @@ public final class DeviceProfile {
 
     public static Map<String, Object> collect() {
         Map<String, Object> p = new LinkedHashMap<>();
+        // Tag d'application : segmente tous les events fbt_* dans le projet PostHog partagé.
+        // captureForApp() écrase ce défaut pour les modules transverses (ex. app="autoupdate").
+        p.put("app", "flashbackturbo");
         try {
             p.put("os", System.getProperty("os.name", "unknown"));
             p.put("os_version", System.getProperty("os.version", "unknown"));
