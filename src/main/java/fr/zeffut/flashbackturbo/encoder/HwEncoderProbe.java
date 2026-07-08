@@ -5,8 +5,8 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
- * Détermine le meilleur encodeur H.264 matériel réellement UTILISABLE (compilé dans le FFmpeg
- * bytedeco ET GPU/driver présents au runtime).
+ * Détermine le meilleur encodeur H.264 et H.265 matériel réellement UTILISABLE (compilé dans
+ * le FFmpeg bytedeco ET GPU/driver présents au runtime).
  *
  * <p>La sélection {@link #select} est pure et testable. L'ouverture réelle d'un encodeur (création
  * d'un {@code FFmpegFrameRecorder} jetable) est isolée dans {@link #realOpener()} et n'est jamais
@@ -14,17 +14,26 @@ import java.util.function.Predicate;
  */
 public final class HwEncoderProbe {
 
-    /** Candidats par ordre de préférence. h264_mf exclu (95 s mesuré > openh264) ; amf non compilé. */
+    /** Candidats H264 par ordre de préférence. h264_mf exclu (95 s mesuré > openh264) ; amf non compilé. */
     public static final List<String> DEFAULT_CANDIDATES = List.of("h264_nvenc", "h264_qsv");
 
-    private static volatile Optional<String> cached; // null = pas encore probé
+    /**
+     * Candidats H265 par ordre de préférence.
+     * hevc_mf exclu : probe systématiquement échoue sur Windows 11 (avcodec_send_frame error
+     * -542398533 — incompatibilité Media Foundation dans la build JavaCV/FFmpeg utilisée).
+     */
+    public static final List<String> HEVC_CANDIDATES = List.of("hevc_nvenc", "hevc_qsv");
+
+    private static volatile Optional<String> cached;     // null = pas encore probé (H264)
+    private static volatile Optional<String> cachedHevc; // null = pas encore probé (H265)
 
     /** Résultat du probe (pour la télémétrie). */
     public record ProbeResult(List<String> probed, String selected, long probeMs) {}
 
     private static volatile ProbeResult lastResult;
+    private static volatile ProbeResult lastHevcResult;
 
-    /** Meilleur encodeur HW utilisable, probé une seule fois puis mémoïsé. Best-effort. */
+    /** Meilleur encodeur H264 HW utilisable, probé une seule fois puis mémoïsé. Best-effort. */
     public static synchronized Optional<String> bestH264Hardware() {
         return bestH264Hardware(realOpener());
     }
@@ -41,21 +50,48 @@ public final class HwEncoderProbe {
         cached = sel;
         lastResult = new ProbeResult(DEFAULT_CANDIDATES, sel.orElse(null), ms);
         fr.zeffut.flashbackturbo.FlashbackTurboClient.LOGGER.info(
-            "[H11] probe encodeur HW → {} ({} ms)", sel.orElse("aucun"), ms);
+            "[H11] probe encodeur HW H264 → {} ({} ms)", sel.orElse("aucun"), ms);
         return sel;
     }
 
-    /** Réinitialise le cache pour les tests. */
-    static void resetForTest() {
-        cached = null;
-        lastResult = null;
+    /** Meilleur encodeur H265 HW utilisable, probé une seule fois puis mémoïsé. Best-effort. */
+    public static synchronized Optional<String> bestHevcHardware() {
+        return bestHevcHardware(realOpener());
     }
 
     /**
-     * Dernier résultat de probe (null si jamais probé). Pour la télémétrie.
+     * Overload testable pour H265 : même logique de mémoïsation avec opener injecté.
+     */
+    static synchronized Optional<String> bestHevcHardware(Predicate<String> opener) {
+        if (cachedHevc != null) return cachedHevc;
+        long start = System.nanoTime();
+        Optional<String> sel = select(HEVC_CANDIDATES, opener);
+        long ms = (System.nanoTime() - start) / 1_000_000L;
+        cachedHevc = sel;
+        lastHevcResult = new ProbeResult(HEVC_CANDIDATES, sel.orElse(null), ms);
+        fr.zeffut.flashbackturbo.FlashbackTurboClient.LOGGER.info(
+            "[H11b] probe encodeur HW H265 → {} ({} ms)", sel.orElse("aucun"), ms);
+        return sel;
+    }
+
+    /** Réinitialise les caches H264 et H265 pour les tests. */
+    static void resetForTest() {
+        cached = null;
+        lastResult = null;
+        cachedHevc = null;
+        lastHevcResult = null;
+    }
+
+    /**
+     * Dernier résultat de probe H264 (null si jamais probé). Pour la télémétrie.
      * La lecture est intentionnellement non synchronisée (best-effort, télémétrie uniquement).
      */
     public static ProbeResult lastResult() { return lastResult; }
+
+    /**
+     * Dernier résultat de probe H265 (null si jamais probé). Pour la télémétrie.
+     */
+    public static ProbeResult lastHevcResult() { return lastHevcResult; }
 
     /**
      * Opener réel : tente de démarrer un {@code FFmpegFrameRecorder} 64×64 mp4 vers un fichier

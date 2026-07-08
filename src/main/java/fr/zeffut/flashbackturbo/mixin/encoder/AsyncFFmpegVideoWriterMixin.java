@@ -56,9 +56,14 @@ public abstract class AsyncFFmpegVideoWriterMixin {
     }
 
     /**
-     * H6+H11 — Applique les tunes de threading FFmpeg et tente la promotion HW
+     * H6+H11+H11b — Applique les tunes de threading FFmpeg et tente la promotion HW
      * juste avant recorder.start(). Lossless / fail-safe : aucune exception de ce
      * code ne peut empêcher le démarrage de l'export (fallback software garanti).
+     *
+     * <p>H11b étend H11 au H265 : {@code hevc_mf} (Windows Media Foundation HEVC) échoue
+     * systématiquement avec {@code avcodec_send_frame() error -542398533} sur Windows 11
+     * dans la build JavaCV/FFmpeg de Flashback. Quand {@code hevc_nvenc} ou {@code hevc_qsv}
+     * est disponible, on y redirige transparentement.
      */
     @Redirect(
         method = "<init>",
@@ -92,6 +97,17 @@ public abstract class AsyncFFmpegVideoWriterMixin {
                     promotedFrom = current;
                     promotedTo = hw.get();
                     FlashbackTurboClient.LOGGER.info("[H11] promotion encodeur {} → {}", current, hw.get());
+                }
+                // H11b : promotion HEVC Windows MF → matériel (hevc_mf → hevc_nvenc / hevc_qsv)
+                if (promotedTo == null) {
+                    java.util.Optional<String> hwHevc = fr.zeffut.flashbackturbo.encoder.EncoderPromotion.chooseHevc(
+                        current, true, fr.zeffut.flashbackturbo.encoder.HwEncoderProbe.bestHevcHardware());
+                    if (hwHevc.isPresent()) {
+                        recorder.setVideoCodecName(hwHevc.get());
+                        promotedFrom = current;
+                        promotedTo = hwHevc.get();
+                        FlashbackTurboClient.LOGGER.info("[H11b] promotion HEVC {} → {}", current, hwHevc.get());
+                    }
                 }
             }
         } catch (Throwable t) {

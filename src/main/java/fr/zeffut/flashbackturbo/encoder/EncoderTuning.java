@@ -44,10 +44,10 @@ public final class EncoderTuning {
             return;
         }
 
-        // Universel : explicite "auto" si non set.
-        if (recorder.getVideoOption("threads") == null) {
-            tryVideoOption(recorder, "threads", "auto");
-        }
+        // MF (Windows Media Foundation) : l'API MF gère le threading en interne.
+        // Forcer threads=auto via AVOption peut déstabiliser l'encodeur et provoquer
+        // des erreurs avcodec_send_frame() (error -542398533 observé sur hevc_mf).
+        boolean isMfEncoder = "h264_mf".equals(encoder) || "hevc_mf".equals(encoder);
 
         boolean isHwEncoder = false;
         switch (encoder) {
@@ -80,6 +80,11 @@ public final class EncoderTuning {
                 // videotoolbox (macOS) : pas de tune threading particulier, mais on flag pour movflags.
                 isHwEncoder = true;
             }
+            case "h264_mf", "hevc_mf" -> {
+                // Windows Media Foundation : pas de tune threads (géré par MF internement).
+                // Flagué HW pour H9 (fragmented MP4), ce qui réduit le finalize de ~10s à ~1s.
+                isHwEncoder = true;
+            }
             case "libopenh264" -> {
                 // OpenH264 est quasi mono-thread via 'threads' seul ; 'slices' découpe la frame en
                 // tranches encodables en parallèle → exploite les cœurs sur les configs sans GPU encode.
@@ -90,6 +95,11 @@ public final class EncoderTuning {
             default -> {
                 // Encoders inconnus (libaom-av1, libsvtav1) : on ne touche à rien.
             }
+        }
+
+        // threads=auto universel, sauf pour les encodeurs MF qui le gèrent en interne.
+        if (!isMfEncoder && recorder.getVideoOption("threads") == null) {
+            tryVideoOption(recorder, "threads", "auto");
         }
 
         // H9 : Fragmented MP4 sur HW encoders.

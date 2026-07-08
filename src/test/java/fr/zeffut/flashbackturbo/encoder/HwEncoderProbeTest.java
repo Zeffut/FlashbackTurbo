@@ -71,4 +71,41 @@ class HwEncoderProbeTest {
     void selectHandlesEmptyCandidateList() {
         assertEquals(Optional.empty(), HwEncoderProbe.select(List.of(), name -> true));
     }
+
+    // HEVC probe tests
+
+    @Test
+    void hevcCandidatesAreNvencThenQsvOnly() {
+        assertEquals(List.of("hevc_nvenc", "hevc_qsv"), HwEncoderProbe.HEVC_CANDIDATES);
+    }
+
+    @Test
+    void bestHevcHardwareMemoizesAfterFirstProbe() {
+        int[] calls = {0};
+        Predicate<String> counting = name -> { calls[0]++; return name.equals("hevc_qsv"); };
+        Optional<String> first = HwEncoderProbe.bestHevcHardware(counting);
+        Optional<String> second = HwEncoderProbe.bestHevcHardware(counting);
+        assertEquals(Optional.of("hevc_qsv"), first);
+        assertEquals(Optional.of("hevc_qsv"), second);
+        // nvenc(skip)+qsv(hit) = 2 calls on the first probe, 0 on the memoized second
+        assertEquals(2, calls[0]);
+    }
+
+    @Test
+    void lastHevcResultPopulatedAfterProbe() {
+        HwEncoderProbe.bestHevcHardware(name -> name.equals("hevc_nvenc"));
+        HwEncoderProbe.ProbeResult r = HwEncoderProbe.lastHevcResult();
+        assertNotNull(r);
+        assertEquals("hevc_nvenc", r.selected());
+        assertEquals(List.of("hevc_nvenc", "hevc_qsv"), r.probed());
+        assertTrue(r.probeMs() >= 0);
+    }
+
+    @Test
+    void hevcAndH264CachesAreIndependent() {
+        HwEncoderProbe.bestH264Hardware(name -> name.equals("h264_nvenc"));
+        HwEncoderProbe.bestHevcHardware(name -> false);
+        assertEquals(Optional.of("h264_nvenc"), HwEncoderProbe.bestH264Hardware(name -> true));
+        assertEquals(Optional.empty(), HwEncoderProbe.bestHevcHardware(name -> true));
+    }
 }
