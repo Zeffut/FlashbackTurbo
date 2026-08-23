@@ -11,7 +11,7 @@ import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
 import fr.zeffut.flashbackturbo.telemetry.ExportContext;
 import fr.zeffut.flashbackturbo.telemetry.Telemetry;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 import java.util.HashMap;
 import java.util.Map;
 import org.spongepowered.asm.mixin.Mixin;
@@ -208,12 +208,12 @@ public abstract class ExportJobMixin {
     )
     private void flashbackturbo$ensureLevelLoaded(ReplayServer replayServer, CallbackInfo ci) {
         if (!TurboConfig.current().fixExportSetupRace) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc == null || mc.world != null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null || mc.level != null) return;
 
         long deadlineNs = System.nanoTime() + 60_000_000_000L; // 60 s de garde
         int ticks = 0;
-        while (mc.world == null && System.nanoTime() < deadlineNs) {
+        while (mc.level == null && System.nanoTime() < deadlineNs) {
             flashbackturbo$runClientTick(false);
             ticks++;
             try {
@@ -225,7 +225,7 @@ public abstract class ExportJobMixin {
             }
         }
 
-        boolean timeoutHit = mc.world == null;
+        boolean timeoutHit = mc.level == null;
         long waitMs = (System.nanoTime() - (deadlineNs - 60_000_000_000L)) / 1_000_000L;
         if (timeoutHit) {
             FlashbackTurboClient.LOGGER.warn(

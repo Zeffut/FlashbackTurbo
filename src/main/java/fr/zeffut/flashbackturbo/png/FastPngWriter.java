@@ -1,6 +1,6 @@
 package fr.zeffut.flashbackturbo.png;
 
-import net.minecraft.client.texture.NativeImage;
+import com.mojang.blaze3d.platform.NativeImage;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -44,8 +44,15 @@ public final class FastPngWriter {
     public static void write(NativeImage image, Path output, int zlibLevel, boolean keepAlpha) throws IOException {
         int width = image.getWidth();
         int height = image.getHeight();
-        boolean writeAlpha = keepAlpha && image.getFormat().hasAlpha();
-        int[] argb = image.copyPixelsArgb();
+        boolean writeAlpha = keepAlpha && image.format().hasAlpha();
+        // Mojang-named NativeImage exposes ABGR pixels in 26.x. Convert once to
+        // the ARGB layout consumed by the small PNG writer below.
+        int[] abgr = image.getPixelsABGR();
+        int[] argb = new int[abgr.length];
+        for (int i = 0; i < abgr.length; i++) {
+            int v = abgr[i];
+            argb[i] = (v & 0xFF00FF00) | ((v & 0xFF) << 16) | ((v >>> 16) & 0xFF);
+        }
         writeArgb(argb, width, height, output, zlibLevel, writeAlpha);
     }
 

@@ -1,12 +1,13 @@
 package fr.zeffut.flashbackturbo.mixin.png;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.ExportSettings;
+import com.moulberry.flashback.exporting.ImageFrame;
 import com.moulberry.flashback.exporting.PNGSequenceVideoWriter;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
 import fr.zeffut.flashbackturbo.png.ParallelPngEncoder;
 import fr.zeffut.flashbackturbo.png.PngPathResolver;
-import net.minecraft.client.texture.NativeImage;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -16,24 +17,16 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.nio.FloatBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
- * H2 + H3 + H7 — Refonte du PNG writer :
- * <ul>
- *   <li>H2 : encodage parallèle sur N-1 threads au lieu d'un seul</li>
- *   <li>H3 : niveau zlib configurable (default L1 = rapide, vs L6 hardcodé Mojang)</li>
- *   <li>H7 : pas d'alpha cleanup (PNG color type 2 = RGB si transparency off, plus de canal alpha à nettoyer)</li>
- * </ul>
+ * H2 + H3 + H7 — Refonte du PNG writer for Flashback 26.2.
  *
- * <p>Stratégie : on saute le démarrage du thread vanilla et on remplace le flux
- * complet par notre {@link ParallelPngEncoder}. Si {@code TurboConfig.current().parallelPngWriter}
- * est désactivé, le comportement vanilla reste intact.
- *
- * <p>Lossless visuel : sortie décodée strictement identique aux pixels source. Le seul
- * delta vs vanilla (avec {@code transparent=false}) est que notre PNG est en RGB (3 canaux)
- * au lieu de RGBA avec alpha=255, ce qui produit un fichier plus petit mais visuellement identique.
+ * <p>Flashback 0.43.x changed {@code VideoWriter.encode} from NativeImage to
+ * {@link ImageFrame}. We convert to Flashback's opaque RGBA NativeImage at the
+ * mixin boundary, then keep the existing parallel PNG writer path. This matches
+ * the 26.2 vanilla PNG sequence path, which also writes NativeImage frames.
  */
 @Mixin(PNGSequenceVideoWriter.class)
 public abstract class PngSequenceVideoWriterMixin {
@@ -58,9 +51,7 @@ public abstract class PngSequenceVideoWriterMixin {
         this.flashbackturbo$active = true;
     }
 
-    /**
-     * Saute le démarrage du Thread vanilla quand turbo est actif — notre pool prend le relais.
-     */
+    /** Saute le démarrage du Thread vanilla quand turbo est actif — notre pool prend le relais. */
     @Redirect(
         method = "<init>",
         at = @At(value = "INVOKE", target = "Ljava/lang/Thread;start()V"),
@@ -68,7 +59,6 @@ public abstract class PngSequenceVideoWriterMixin {
     )
     private void flashbackturbo$maybeStartVanillaThread(Thread vanilla) {
         if (TurboConfig.current().parallelPngWriter) {
-            // Notre encoder parallèle gère tout, le thread vanilla resterait à idle.
             FlashbackTurboClient.LOGGER.info("[H2] thread vanilla PNG bypassé, pool parallèle actif");
             return;
         }
@@ -76,27 +66,30 @@ public abstract class PngSequenceVideoWriterMixin {
     }
 
     @Inject(method = "encode", at = @At("HEAD"), cancellable = true)
-    private void flashbackturbo$encodeParallel(NativeImage src, FloatBuffer audioBuffer, CallbackInfo ci) {
+    private void flashbackturbo$encodeParallel(ImageFrame frame, CallbackInfo ci) {
         if (!this.flashbackturbo$active) {
             return;
         }
-        if (audioBuffer != null) {
-            src.close();
+        if (frame.audioBuffer != null) {
+            frame.close();
             throw new RuntimeException("PNG Sequence does not support encoding audio");
         }
         if (this.finishEncodeThread.get() || this.finishedWriting.get()) {
-            src.close();
+            frame.close();
             throw new IllegalStateException("Cannot encode after finish()");
         }
 
+        NativeImage image = frame.toOpaqueRgbaU8NativeImage();
+        frame.close();
+
         this.sequenceNumber += 1;
         var path = this.flashbackturbo$pathResolver.resolve(this.sequenceNumber);
-        this.flashbackturbo$encoder.submit(src, path);
+        this.flashbackturbo$encoder.submit(image, path);
         ci.cancel();
     }
 
     @Inject(method = "finish", at = @At("HEAD"), cancellable = true)
-    private void flashbackturbo$finishParallel(CallbackInfo ci) {
+    private void flashbackturbo$finishParallel(Consumer<String> progressConsumer, CallbackInfo ci) {
         if (!this.flashbackturbo$active) {
             return;
         }
@@ -104,6 +97,9 @@ public abstract class PngSequenceVideoWriterMixin {
         this.flashbackturbo$encoder.close();
         this.finishEncodeThread.set(true);
         this.finishedWriting.set(true);
+        if (progressConsumer != null) {
+            progressConsumer.accept("parallel PNG writer");
+        }
         ci.cancel();
     }
 

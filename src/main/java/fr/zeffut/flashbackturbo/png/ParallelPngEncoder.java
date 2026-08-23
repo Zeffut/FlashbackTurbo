@@ -2,7 +2,7 @@ package fr.zeffut.flashbackturbo.png;
 
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
-import net.minecraft.client.texture.NativeImage;
+import com.mojang.blaze3d.platform.NativeImage;
 
 import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;

@@ -1,25 +1,20 @@
 package fr.zeffut.flashbackturbo.encoder;
 
+import com.moulberry.flashback.exporting.FlashbackFFmpegFrameRecorder;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
-import org.bytedeco.javacv.FFmpegFrameRecorder;
+
+import java.lang.reflect.Field;
+import java.util.Map;
 
 /**
  * Tunes FFmpeg lossless par encoder. Applique uniquement des options qui modifient
  * le scheduling / la concurrence, jamais la qualité visuelle de l'output.
  *
- * <p>Sources :
- * <ul>
- *   <li>libx264 : {@code threads=auto} laisse x264 choisir (default déjà bon, mais explicite par sécurité)</li>
- *   <li>libx265 : idem</li>
- *   <li>nvenc : {@code delay=0} pour réduire la latence sans toucher au bitrate/qualité</li>
- *   <li>videotoolbox : peu d'options exposées, par défaut déjà thread-correct</li>
- *   <li>qsv : {@code async_depth} contrôle le nombre de frames en vol, lossless</li>
- *   <li>libsvtav1 : {@code preset} touche la qualité — on n'y touche pas</li>
- * </ul>
- *
- * <p>Toutes les options listées ici sont documentées dans la doc FFmpeg comme n'affectant pas
- * la sortie binaire encodée pour un même input.
+ * <p>Flashback 26.2 replaced JavaCV's public {@code FFmpegFrameRecorder} with its
+ * own {@link FlashbackFFmpegFrameRecorder}. That wrapper exposes setters but not
+ * getters, so this class reads the private option maps by reflection to preserve
+ * the older "only set when absent" behavior without changing Flashback itself.
  */
 public final class EncoderTuning {
 
@@ -32,94 +27,72 @@ public final class EncoderTuning {
         return Math.max(1, Math.min(8, cores));
     }
 
-    /** Applique les tunes adaptés à l'encoder courant du recorder. À appeler avant {@code recorder.start()}.
-     *
-     * <p>Aucun setOption/setVideoOption n'est laissé non protégé : si une version de FFmpeg
-     * refuse une option (nom inconnu, valeur invalide), on log et on continue. Sans ça, une
-     * exception remonterait jusqu'au Mixin @Redirect et empêcherait {@code recorder.start()}
-     * → export crash silencieux côté user. */
-    public static void applyThreadingTunes(FFmpegFrameRecorder recorder) {
-        String encoder = recorder.getVideoCodecName();
+    /** Applique les tunes adaptés à l'encoder courant du recorder. À appeler avant {@code recorder.start()}. */
+    public static void applyThreadingTunes(FlashbackFFmpegFrameRecorder recorder) {
+        String encoder = getStringField(recorder, "videoCodecName");
         if (encoder == null) {
             return;
         }
 
-        // MF (Windows Media Foundation) : l'API MF gère le threading en interne.
-        // Forcer threads=auto via AVOption peut déstabiliser l'encodeur et provoquer
-        // des erreurs avcodec_send_frame() (error -542398533 observé sur hevc_mf).
+        // MF (Windows Media Foundation) gère son threading en interne. Forcer
+        // threads=auto peut provoquer avcodec_send_frame() error -542398533.
         boolean isMfEncoder = "h264_mf".equals(encoder) || "hevc_mf".equals(encoder);
-
         boolean isHwEncoder = false;
+
         switch (encoder) {
             case "libx264", "libx265" -> {
-                // x264/x265 sont déjà bien threadés en auto. Rien d'autre à toucher
-                // sans risquer un changement de qualité (sliced threads, etc.).
+                // x264/x265 sont déjà bien threadés en auto. Rien d'autre à toucher.
             }
             case "h264_nvenc", "hevc_nvenc", "av1_nvenc" -> {
-                // delay=0 réduit le retard sans changer la sortie.
-                if (recorder.getVideoOption("delay") == null) {
+                if (getVideoOption(recorder, "delay") == null) {
                     tryVideoOption(recorder, "delay", "0");
                 }
                 isHwEncoder = true;
             }
             case "h264_qsv", "hevc_qsv", "av1_qsv" -> {
-                // async_depth >1 permet plus de parallélisme sans altérer le bitstream.
-                if (recorder.getVideoOption("async_depth") == null) {
+                if (getVideoOption(recorder, "async_depth") == null) {
                     tryVideoOption(recorder, "async_depth", Integer.toString(Math.min(8, CPU_CORES)));
                 }
                 isHwEncoder = true;
             }
             case "h264_amf", "hevc_amf", "av1_amf" -> {
-                // AMF a query_timeout pour non-blocking submit, lossless.
-                if (recorder.getVideoOption("query_timeout") == null) {
+                if (getVideoOption(recorder, "query_timeout") == null) {
                     tryVideoOption(recorder, "query_timeout", "1000");
                 }
                 isHwEncoder = true;
             }
-            case "h264_videotoolbox", "hevc_videotoolbox" -> {
-                // videotoolbox (macOS) : pas de tune threading particulier, mais on flag pour movflags.
-                isHwEncoder = true;
-            }
-            case "h264_mf", "hevc_mf" -> {
-                // Windows Media Foundation : pas de tune threads (géré par MF internement).
-                // Flagué HW pour H9 (fragmented MP4), ce qui réduit le finalize de ~10s à ~1s.
+            case "h264_videotoolbox", "hevc_videotoolbox", "h264_mf", "hevc_mf" -> {
                 isHwEncoder = true;
             }
             case "libopenh264" -> {
-                // OpenH264 est quasi mono-thread via 'threads' seul ; 'slices' découpe la frame en
-                // tranches encodables en parallèle → exploite les cœurs sur les configs sans GPU encode.
-                if (recorder.getVideoOption("slices") == null) {
+                if (getVideoOption(recorder, "slices") == null) {
                     tryVideoOption(recorder, "slices", Integer.toString(openh264Slices(CPU_CORES)));
                 }
             }
             default -> {
-                // Encoders inconnus (libaom-av1, libsvtav1) : on ne touche à rien.
+                // Encoders inconnus: ne rien toucher.
             }
         }
 
-        // threads=auto universel, sauf pour les encodeurs MF qui le gèrent en interne.
-        if (!isMfEncoder && recorder.getVideoOption("threads") == null) {
+        if (!isMfEncoder && getVideoOption(recorder, "threads") == null) {
             tryVideoOption(recorder, "threads", "auto");
         }
 
-        // H9 : Fragmented MP4 sur HW encoders.
-        // Sans ça, FFmpeg écrit un moov atom géant à la fin, ce qui prend 8-12s sur
-        // des exports >100 MB. Avec +frag_keyframe+empty_moov, chaque chunk est
-        // self-contained et le finalize est ~10× plus rapide. Compatible VLC, IINA,
-        // Premiere, DaVinci, Discord, YouTube, navigateurs. ~1-3% de taille en plus.
+        // H9 : Fragmented MP4 sur HW encoders. Flashback's 26.2 wrapper calls this
+        // a muxer option rather than JavaCV's generic setOption("movflags", ...).
         if (isHwEncoder && TurboConfig.current().useFragmentedMp4OnHwEncoders) {
-            if (recorder.getOption("movflags") == null) {
-                if (tryOption(recorder, "movflags", "+frag_keyframe+empty_moov")) {
+            if (getMuxerOption(recorder, "movflags") == null) {
+                if (tryMuxerOption(recorder, "movflags", "+frag_keyframe+empty_moov")) {
                     FlashbackTurboClient.LOGGER.info("[H9] fragmented MP4 actif (movflags=+frag_keyframe+empty_moov)");
                 }
             }
         }
 
         FlashbackTurboClient.LOGGER.info("[H6] tunes appliqués pour encoder={} (threads={}, hw={})",
-            encoder, recorder.getVideoOption("threads"), isHwEncoder);
+            encoder, getVideoOption(recorder, "threads"), isHwEncoder);
     }
 
-    private static void tryVideoOption(FFmpegFrameRecorder recorder, String key, String value) {
+    private static void tryVideoOption(FlashbackFFmpegFrameRecorder recorder, String key, String value) {
         try {
             recorder.setVideoOption(key, value);
         } catch (Throwable t) {
@@ -127,13 +100,49 @@ public final class EncoderTuning {
         }
     }
 
-    private static boolean tryOption(FFmpegFrameRecorder recorder, String key, String value) {
+    private static boolean tryMuxerOption(FlashbackFFmpegFrameRecorder recorder, String key, String value) {
         try {
-            recorder.setOption(key, value);
+            recorder.setMuxerOption(key, value);
             return true;
         } catch (Throwable t) {
-            FlashbackTurboClient.LOGGER.warn("[H6] setOption({}={}) refusée par FFmpeg, ignorée : {}", key, value, t.toString());
+            FlashbackTurboClient.LOGGER.warn("[H6] setMuxerOption({}={}) refusée par FFmpeg, ignorée : {}", key, value, t.toString());
             return false;
+        }
+    }
+
+    private static String getVideoOption(FlashbackFFmpegFrameRecorder recorder, String key) {
+        return getMapValue(recorder, "videoOptions", key);
+    }
+
+    private static String getMuxerOption(FlashbackFFmpegFrameRecorder recorder, String key) {
+        return getMapValue(recorder, "options", key);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String getMapValue(FlashbackFFmpegFrameRecorder recorder, String fieldName, String key) {
+        try {
+            Field f = FlashbackFFmpegFrameRecorder.class.getDeclaredField(fieldName);
+            f.setAccessible(true);
+            Object value = f.get(recorder);
+            if (value instanceof Map<?, ?> map) {
+                Object result = map.get(key);
+                return result instanceof String s ? s : null;
+            }
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.debug("[H6] accès réflexif {} ignoré", fieldName, t);
+        }
+        return null;
+    }
+
+    private static String getStringField(FlashbackFFmpegFrameRecorder recorder, String fieldName) {
+        try {
+            Field f = FlashbackFFmpegFrameRecorder.class.getDeclaredField(fieldName);
+            f.setAccessible(true);
+            Object value = f.get(recorder);
+            return value instanceof String s ? s : null;
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.debug("[H6] accès réflexif {} ignoré", fieldName, t);
+            return null;
         }
     }
 }

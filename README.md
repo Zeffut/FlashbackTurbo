@@ -27,7 +27,7 @@ FlashbackTurbo patches Flashback's export pipeline via Mixin to replace serial, 
 | **H4** | `AsyncFFmpegVideoWriter` ctor | Removed the silent 4K downscale cap |
 | **H6** | `AsyncFFmpegVideoWriter.start()` | FFmpeg threading tunes per encoder (nvenc, qsv, videotoolbox, libopenh264) |
 | **H7** | `PNGSequenceVideoWriter.encode()` | PNG color type 2 (RGB) when transparency is off, eliminates alpha cleanup loop |
-| **H8** | `AsyncFFmpegVideoWriter.finish()` | Animated "Saving..." overlay during post-export finalize phase (Flashback's own progress display doesn't update once export loop ends) |
+| **H8** | `AsyncFFmpegVideoWriter.finish()` | 1.21/26.1 only: animated "Saving..." overlay during post-export finalize phase. Disabled in the 26.2 port because Flashback now reports final export progress and Minecraft's render-state pipeline made the old manual render/swap hook brittle. |
 | **H9** | `AsyncFFmpegVideoWriter` recorder options | Fragmented MP4 (`movflags=+frag_keyframe+empty_moov`) on hardware encoders — eliminates the moov atom rewrite, ~10× faster finalize |
 | **H10** | `ExportJob.setup()` | Fixes a Flashback crash: `setup()` reads `mc.level` after a single `runClientTick`, which is null on a mid-replay export (server seek reloads the world) → `NullPointerException`. Pumps `runClientTick` until the level is loaded. |
 | **H11** | `AsyncFFmpegVideoWriter.start()` | Auto-promotes `libopenh264` (slow software encoder) → `h264_nvenc`/`h264_qsv` when a usable GPU encoder is detected — for the ~13% of exports on software-only configs. Fail-safe fallback to software. SSIM ≥ 0.99. |
@@ -124,8 +124,9 @@ Set `"autoUpdate": false` to disable. Override at runtime with `-Dautoupdate.ena
 |------------|-------------------|------------------------|------|
 | 1.21.9 / 1.21.10 / 1.21.11 | ≥ 0.39.0 | `0.6.1` | 21 |
 | 26.1 / 26.1.1 / 26.1.2 | ≥ 0.40.0 | `0.6.1+26.1` | 25 |
+| 26.2 | ≥ 0.43.1 | `0.6.2+26.2` | 25 |
 
-Fabric Loader ≥ 0.19.2. Fabric API required.
+Fabric Loader ≥ 0.19.3 and Fabric API ≥ 0.158.0+26.2 are required for the 26.2 port.
 
 ## Installation
 
@@ -136,9 +137,11 @@ Fabric Loader ≥ 0.19.2. Fabric API required.
 ## Building from source
 
 ```bash
-./scripts/fetch-flashback.sh   # downloads Flashback jar into libs/ (gitignored)
+./scripts/fetch-flashback.sh   # downloads Flashback 0.43.1 for 26.2 into libs/ (gitignored)
 ./gradlew build                # produces build/libs/flashbackturbo-x.y.z.jar
 ```
+
+The 26.2 port builds against Mojang/official names (`loom.officialMojangMappings()`). The Flashback jar is compile-only and is not redistributed.
 
 For the 26.1.x branch (Mojang mappings + Loom 1.15-SNAPSHOT), see [docs/HOOKS.md](docs/HOOKS.md) §H5 and [docs/SPEC.md](docs/SPEC.md) §8.
 

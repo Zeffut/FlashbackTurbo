@@ -21,20 +21,25 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    mappings loom.officialMojangMappings()
+    // With official Mojang mappings for 26.x, keep Fabric jars on the compile
+    // classpath without asking Loom to remap their intermediary access wideners.
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // Flashback en compile-only pour cibler les classes via @Mixin.
-    // Le jar n'est jamais redistribué — l'utilisateur final fournit son propre Flashback.
+    // Flashback is compile-only: the user supplies the runtime Flashback jar.
     def flashbackJar = file("libs/${project.flashback_jar}")
     if (flashbackJar.exists()) {
-        modCompileOnly files(flashbackJar)
+        compileOnly files(flashbackJar)
     } else {
-        logger.warn("[FlashbackTurbo] libs/${project.flashback_jar} absent — lancer scripts/fetch-flashback.sh avant build.")
+        logger.warn("[FlashbackTurbo] libs/${project.flashback_jar} missing — run scripts/fetch-flashback.sh before build.")
     }
 
-    // Télémétrie — shadée + relocalisée (voir shadowJar) pour éviter tout conflit de classloader.
+    // Compile annotation support for Mixin and @WrapOperation; Fabric Loader supplies them at runtime.
+    compileOnly "net.fabricmc:sponge-mixin:0.16.3+mixin.0.8.7"
+    compileOnly "io.github.llamalad7:mixinextras-common:0.5.4"
+
+    // Telemetry — shaded + relocated (see shadowJar) to avoid classloader conflicts.
     implementation "com.posthog.java:posthog:1.1.1"
 
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
@@ -49,13 +54,13 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
+    it.options.release = 25
 }
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 test {
@@ -68,10 +73,7 @@ jar {
     }
 }
 
-// PostHog SDK shadé + relocalisé pour éviter tout conflit de classloader avec
-// d'autres mods. La 1.1.1 publie déjà ses deps runtime (okhttp3/kotlin/okio/
-// org.json/org.jetbrains/org.intellij.lang) relocalisées sous com.posthog.java.shaded.*,
-// donc relocaliser le seul préfixe `com.posthog` capture tout l'arbre.
+// PostHog SDK is shaded + relocated so the final jar is self-contained without leaking deps.
 shadowJar {
     configurations = [project.configurations.runtimeClasspath]
     dependencies {
@@ -81,10 +83,7 @@ shadowJar {
     archiveClassifier = 'shadow'
 }
 
-// Loom × Shadow : on fait pointer l'entrée de remapJar sur l'archive du shadowJar
-// pour que les classes relocalisées atterrissent dans le jar remappé final.
 remapJar {
     dependsOn shadowJar
     inputFile = shadowJar.archiveFile
 }
-
