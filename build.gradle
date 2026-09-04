@@ -11,6 +11,12 @@ base {
     archivesName = project.archives_base_name
 }
 
+// Minecraft 26.2 and its Fabric API are already Mojang-named. Avoid asking
+// Loom for unavailable official mapping metadata for this stable line.
+loom {
+    noIntermediateMappings()
+}
+
 repositories {
     maven {
         name = 'Modrinth'
@@ -21,7 +27,20 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings loom.officialMojangMappings()
+    // Loom still requires a mappings dependency when intermediate mappings are
+    // disabled. This empty official -> named mapping declares the identity path.
+    def stubMappingsJar = file("${buildDir}/stub-mappings.jar")
+    if (!stubMappingsJar.exists()) {
+        stubMappingsJar.parentFile.mkdirs()
+        def tinyContent = "tiny\t2\t0\tofficial\tnamed\n"
+        new java.util.jar.JarOutputStream(stubMappingsJar.newOutputStream()).withCloseable { jos ->
+            def entry = new java.util.jar.JarEntry("mappings/mappings.tiny")
+            jos.putNextEntry(entry)
+            jos.write(tinyContent.bytes)
+            jos.closeEntry()
+        }
+    }
+    mappings files(stubMappingsJar)
     // With official Mojang mappings for 26.x, keep Fabric jars on the compile
     // classpath without asking Loom to remap their intermediary access wideners.
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
@@ -31,6 +50,7 @@ dependencies {
     def flashbackJar = file("libs/${project.flashback_jar}")
     if (flashbackJar.exists()) {
         compileOnly files(flashbackJar)
+        modLocalRuntime files(flashbackJar)
     } else {
         logger.warn("[FlashbackTurbo] libs/${project.flashback_jar} missing — run scripts/fetch-flashback.sh before build.")
     }
