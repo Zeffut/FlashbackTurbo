@@ -1,3 +1,8 @@
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+import java.util.jar.JarFile
+
 plugins {
     id 'fabric-loom' version '1.16.2'
     id 'com.gradleup.shadow' version '9.2.2'
@@ -11,6 +16,12 @@ base {
     archivesName = project.archives_base_name
 }
 
+// Minecraft 26.2 and its Fabric API are already Mojang-named. Avoid asking
+// Loom for unavailable official mapping metadata for this stable line.
+loom {
+    noIntermediateMappings()
+}
+
 repositories {
     maven {
         name = 'Modrinth'
@@ -21,20 +32,39 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    // Loom still requires a mappings dependency when intermediate mappings are
+    // disabled. This empty official -> named mapping declares the identity path.
+    def stubMappingsJar = file("${buildDir}/stub-mappings.jar")
+    if (!stubMappingsJar.exists()) {
+        stubMappingsJar.parentFile.mkdirs()
+        def tinyContent = "tiny\t2\t0\tofficial\tnamed\n"
+        new java.util.jar.JarOutputStream(stubMappingsJar.newOutputStream()).withCloseable { jos ->
+            def entry = new java.util.jar.JarEntry("mappings/mappings.tiny")
+            jos.putNextEntry(entry)
+            jos.write(tinyContent.bytes)
+            jos.closeEntry()
+        }
+    }
+    mappings files(stubMappingsJar)
+    // With official Mojang mappings for 26.x, keep Fabric jars on the compile
+    // classpath without asking Loom to remap their intermediary access wideners.
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // Flashback en compile-only pour cibler les classes via @Mixin.
-    // Le jar n'est jamais redistribué — l'utilisateur final fournit son propre Flashback.
+    // Flashback is compile-only: the user supplies the runtime Flashback jar.
     def flashbackJar = file("libs/${project.flashback_jar}")
     if (flashbackJar.exists()) {
-        modCompileOnly files(flashbackJar)
+        compileOnly files(flashbackJar)
+        modLocalRuntime files(flashbackJar)
     } else {
-        logger.warn("[FlashbackTurbo] libs/${project.flashback_jar} absent — lancer scripts/fetch-flashback.sh avant build.")
+        logger.warn("[FlashbackTurbo] libs/${project.flashback_jar} missing — run scripts/fetch-flashback.sh before build.")
     }
 
-    // Télémétrie — shadée + relocalisée (voir shadowJar) pour éviter tout conflit de classloader.
+    // Compile annotation support for Mixin and @WrapOperation; Fabric Loader supplies them at runtime.
+    compileOnly "net.fabricmc:sponge-mixin:0.16.3+mixin.0.8.7"
+    compileOnly "io.github.llamalad7:mixinextras-common:0.5.4"
+
+    // Telemetry — shaded + relocated (see shadowJar) to avoid classloader conflicts.
     implementation "com.posthog.java:posthog:1.1.1"
 
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
@@ -49,13 +79,13 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
+    it.options.release = 25
 }
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 test {
@@ -63,28 +93,116 @@ test {
 }
 
 jar {
+    // Keep the plain compiled jar as a development artifact. Minecraft 26.2 / this
+    // port runs with official Mojang names at runtime, so the distributable must
+    // not be Loom-remapped to intermediary names like net/minecraft/class_310.
+    archiveClassifier = 'dev'
     from('LICENSE') {
         rename { "${it}_${project.archives_base_name}" }
     }
 }
 
-// PostHog SDK shadé + relocalisé pour éviter tout conflit de classloader avec
-// d'autres mods. La 1.1.1 publie déjà ses deps runtime (okhttp3/kotlin/okio/
-// org.json/org.jetbrains/org.intellij.lang) relocalisées sous com.posthog.java.shaded.*,
-// donc relocaliser le seul préfixe `com.posthog` capture tout l'arbre.
+// PostHog SDK is shaded + relocated so the final jar is self-contained without leaking deps.
+// This is the runtime jar users should install. It intentionally stays in official
+// Mojang names for Minecraft 26.2; remapping it would recreate the class_310 crash.
 shadowJar {
     configurations = [project.configurations.runtimeClasspath]
     dependencies {
         include(dependency('com.posthog.java:posthog'))
     }
     relocate 'com.posthog', 'fr.zeffut.flashbackturbo.shadow.posthog'
-    archiveClassifier = 'shadow'
+    archiveClassifier = ''
 }
 
-// Loom × Shadow : on fait pointer l'entrée de remapJar sur l'archive du shadowJar
-// pour que les classes relocalisées atterrissent dans le jar remappé final.
+// Do not publish Loom's intermediary-remapped jar for this 26.2 port. The current
+// 26.2 runtime and Flashback jars use official names, so an intermediary jar fails
+// during client entrypoint loading before the window opens.
 remapJar {
-    dependsOn shadowJar
-    inputFile = shadowJar.archiveFile
+    enabled = false
 }
 
+assemble.dependsOn shadowJar
+
+tasks.register('verifyRuntimeJarNames') {
+    dependsOn shadowJar
+    group = 'verification'
+    description = 'Fails if the installable jar contains intermediary net/minecraft/class_* references.'
+    doLast {
+        def jarFile = shadowJar.archiveFile.get().asFile
+        def matchingEntries = []
+        zipTree(jarFile).matching { include '**/*.class' }.visit { entry ->
+            if (!entry.directory && entry.file.bytes.contains('net/minecraft/class_'.bytes)) {
+                matchingEntries << entry.relativePath.pathString
+            }
+        }
+        if (!matchingEntries.isEmpty()) {
+            throw new GradleException("${jarFile.name} still contains intermediary Minecraft class references: ${matchingEntries.take(10)}")
+        }
+    }
+}
+
+tasks.register('verifyFlashbackDependency') {
+    group = 'verification'
+    description = 'Verifies the exact Flashback 0.43.2 / Minecraft 26.2 compile-only dependency.'
+    inputs.file("libs/${project.flashback_jar}")
+    doLast {
+        def dependency = file("libs/${project.flashback_jar}")
+        if (!dependency.isFile()) {
+            throw new GradleException("Missing required Flashback dependency: ${dependency}. Run scripts/fetch-flashback.sh.")
+        }
+        def actualHash = MessageDigest.getInstance('SHA-256').digest(dependency.bytes).encodeHex().toString()
+        if (actualHash != project.flashback_sha256) {
+            throw new GradleException("Unexpected SHA-256 for ${dependency.name}: ${actualHash}")
+        }
+        new ZipFile(dependency).withCloseable { zip ->
+            def descriptor = zip.getEntry('fabric.mod.json')
+            if (descriptor == null) throw new GradleException("${dependency.name} has no fabric.mod.json")
+            def metadata = new JsonSlurper().parseText(zip.getInputStream(descriptor).getText('UTF-8'))
+            if (metadata.id != 'flashback' || metadata.version != project.flashback_version) {
+                throw new GradleException("Expected Flashback ${project.flashback_version}, found ${metadata.id} ${metadata.version}")
+            }
+            // Flashback 0.43.2 declares the interval >26.1 <26.3, which includes 26.2.
+            def minecraftRange = metadata.depends.minecraft as String
+            if (!(minecraftRange.contains('>26.1') && minecraftRange.contains('<26.3'))) {
+                throw new GradleException("${dependency.name} does not declare Minecraft 26.2 compatibility: ${minecraftRange}")
+            }
+        }
+    }
+}
+
+tasks.register('headlessSmoke') {
+    dependsOn tasks.named('shadowJar'), tasks.named('verifyRuntimeJarNames'), tasks.named('verifyFlashbackDependency')
+    group = 'verification'
+    description = 'Headlessly verifies the distributable archive, Fabric manifest, and client entrypoint class.'
+    doLast {
+        def runtimeJar = shadowJar.archiveFile.get().asFile
+        new JarFile(runtimeJar).withCloseable { zip ->
+            def manifest = zip.manifest
+            if (manifest?.mainAttributes?.getValue('Manifest-Version') == null) {
+                throw new GradleException("${runtimeJar.name} has no manifest version")
+            }
+            def descriptor = zip.getEntry('fabric.mod.json')
+            if (descriptor == null) throw new GradleException("${runtimeJar.name} has no fabric.mod.json")
+            def metadata = new JsonSlurper().parseText(zip.getInputStream(descriptor).getText('UTF-8'))
+            if (metadata.id != 'flashbackturbo' || metadata.version != project.version) {
+                throw new GradleException("Unexpected archive metadata: ${metadata.id} ${metadata.version}")
+            }
+            def entrypoint = metadata.entrypoints?.client?.getAt(0)
+            if (!(entrypoint instanceof String)) throw new GradleException('No client entrypoint in fabric.mod.json')
+            def classPath = entrypoint.replace('.', '/') + '.class'
+            if (zip.getEntry(classPath) == null) throw new GradleException("Entrypoint class is absent: ${classPath}")
+            if (zip.entries().any { it.name.startsWith('com/moulberry/flashback/') }) {
+                throw new GradleException('Flashback was bundled into the distributable despite being compile-only')
+            }
+            def urls = ([runtimeJar] + sourceSets.main.runtimeClasspath.files).collect { it.toURI().toURL() }
+            def loader = new URLClassLoader(urls as URL[], ClassLoader.systemClassLoader)
+            try {
+                Class.forName(entrypoint, false, loader)
+            } finally {
+                loader.close()
+            }
+        }
+    }
+}
+
+check.dependsOn tasks.named('verifyRuntimeJarNames'), tasks.named('verifyFlashbackDependency')

@@ -1,88 +1,76 @@
 package fr.zeffut.flashbackturbo.mixin.encoder;
 
 import com.moulberry.flashback.exporting.AsyncFFmpegVideoWriter;
+import com.moulberry.flashback.exporting.FlashbackFFmpegFrameRecorder;
 import fr.zeffut.flashbackturbo.FlashbackTurboClient;
 import fr.zeffut.flashbackturbo.config.TurboConfig;
 import fr.zeffut.flashbackturbo.encoder.EncoderTuning;
 import fr.zeffut.flashbackturbo.telemetry.Telemetry;
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
-import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Constant;
-import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
- * H4 — Lever le cap de résolution 4K silencieux dans AsyncFFmpegVideoWriter.
+ * H6+H9+H11+H11b for Flashback 26.2.
  *
- * <p>Le constructeur original contient :
- * <pre>{@code
- * final int maxResolutionArea = 3840 * 2160;
- * if (width*height > maxResolutionArea) {
- *     double factor = (width*height) / (double) maxResolutionArea;
- *     factor = Math.sqrt(factor);
- *     width = (int) Math.floor(width / factor);
- *     height = (int) Math.floor(height / factor);
- * }
- * }</pre>
- *
- * <p>La constante {@code 3840 * 2160} = {@code 8294400} est folded à la compilation.
- * On la remplace par {@link Integer#MAX_VALUE} pour que la branche de downscale
- * ne soit jamais empruntée. L'utilisateur récupère exactement la résolution demandée.
- *
- * <p>Aucune perte de qualité — au contraire, on évite un downscale silencieux qui
- * détériorait la qualité au-delà de 4K.
+ * <p>Flashback 0.43.x moved FFmpeg setup from the constructor into
+ * {@code tryStart(int)} and replaced JavaCV's public recorder type with
+ * {@link FlashbackFFmpegFrameRecorder}. This redirect keeps the original
+ * fail-safe behavior: tune/promote immediately before {@code recorder.start()},
+ * then fall back to the original encoder if a promoted hardware encoder fails.
  */
 @Mixin(AsyncFFmpegVideoWriter.class)
 public abstract class AsyncFFmpegVideoWriterMixin {
 
-    @org.spongepowered.asm.mixin.Unique
+    @Unique
     private static volatile boolean flashbackturbo$hwProbeReported = false;
 
-    @ModifyConstant(
-        method = "<init>",
-        constant = @Constant(intValue = 3840 * 2160),
-        require = 0   // tolère l'absence (versions Flashback futures qui retireraient le cap)
+    /**
+     * H4 — 26.2 no longer has a folded 3840×2160 constant. The cap is now
+     * delegated to EncoderQuirks.maximumFrameArea(encoder), so lift that result
+     * instead while keeping Flashback's minimum-frame-size quirks intact.
+     */
+    @Redirect(
+        method = "tryStart",
+        at = @At(
+            value = "INVOKE",
+            target = "Lcom/moulberry/flashback/exporting/EncoderQuirks;maximumFrameArea(Ljava/lang/String;)I"
+        ),
+        require = 0
     )
-    private int flashbackturbo$liftResolutionCap(int original) {
+    private int flashbackturbo$liftResolutionCap(String encoder) {
+        int original = com.moulberry.flashback.exporting.EncoderQuirks.maximumFrameArea(encoder);
         if (TurboConfig.current().liftResolutionCap) {
-            FlashbackTurboClient.LOGGER.info("[H4] cap résolution levé (était {})", original);
-            Telemetry.capture("fbt_resolution_cap_lifted", Map.of("original_max_area", original));
+            FlashbackTurboClient.LOGGER.info("[H4] cap résolution levé pour encoder={} (était {})", encoder, original);
+            Telemetry.capture("fbt_resolution_cap_lifted", Map.of("encoder", encoder, "original_max_area", original));
             return Integer.MAX_VALUE;
         }
         return original;
     }
 
-    /**
-     * H6+H11+H11b — Applique les tunes de threading FFmpeg et tente la promotion HW
-     * juste avant recorder.start(). Lossless / fail-safe : aucune exception de ce
-     * code ne peut empêcher le démarrage de l'export (fallback software garanti).
-     *
-     * <p>H11b étend H11 au H265 : {@code hevc_mf} (Windows Media Foundation HEVC) échoue
-     * systématiquement avec {@code avcodec_send_frame() error -542398533} sur Windows 11
-     * dans la build JavaCV/FFmpeg de Flashback. Quand {@code hevc_nvenc} ou {@code hevc_qsv}
-     * est disponible, on y redirige transparentement.
-     */
     @Redirect(
-        method = "<init>",
+        method = "tryStart",
         at = @At(
             value = "INVOKE",
-            target = "Lorg/bytedeco/javacv/FFmpegFrameRecorder;start()V"
+            target = "Lcom/moulberry/flashback/exporting/FlashbackFFmpegFrameRecorder;start()V"
         ),
         require = 0
     )
-    private void flashbackturbo$tuneRecorderBeforeStart(FFmpegFrameRecorder recorder) throws FFmpegFrameRecorder.Exception {
-        String promotedFrom = null, promotedTo = null;
+    private void flashbackturbo$tuneRecorderBeforeStart(FlashbackFFmpegFrameRecorder recorder)
+            throws FlashbackFFmpegFrameRecorder.Exception {
+        String promotedFrom = null;
+        String promotedTo = null;
 
-        // H11 : promotion software → hardware si applicable.
         try {
-            if (fr.zeffut.flashbackturbo.config.TurboConfig.current().promoteSoftwareToHardwareEncode) {
-                String current = recorder.getVideoCodecName();
+            if (TurboConfig.current().promoteSoftwareToHardwareEncode) {
+                String current = flashbackturbo$getVideoCodecName(recorder);
                 java.util.Optional<String> hw = fr.zeffut.flashbackturbo.encoder.EncoderPromotion.choose(
                     current, true, fr.zeffut.flashbackturbo.encoder.HwEncoderProbe.bestH264Hardware());
-                // Émettre l'event de probe UNE SEULE FOIS par session (le probe est mémoïsé).
+
                 var pr = fr.zeffut.flashbackturbo.encoder.HwEncoderProbe.lastResult();
                 if (pr != null && !flashbackturbo$hwProbeReported) {
                     flashbackturbo$hwProbeReported = true;
@@ -92,13 +80,14 @@ public abstract class AsyncFFmpegVideoWriterMixin {
                     pp.put("probe_ms", pr.probeMs());
                     Telemetry.capture("fbt_hw_promotion_probe", pp);
                 }
+
                 if (hw.isPresent()) {
                     recorder.setVideoCodecName(hw.get());
                     promotedFrom = current;
                     promotedTo = hw.get();
                     FlashbackTurboClient.LOGGER.info("[H11] promotion encodeur {} → {}", current, hw.get());
                 }
-                // H11b : promotion HEVC Windows MF → matériel (hevc_mf → hevc_nvenc / hevc_qsv)
+
                 if (promotedTo == null) {
                     java.util.Optional<String> hwHevc = fr.zeffut.flashbackturbo.encoder.EncoderPromotion.chooseHevc(
                         current, true, fr.zeffut.flashbackturbo.encoder.HwEncoderProbe.bestHevcHardware());
@@ -112,10 +101,10 @@ public abstract class AsyncFFmpegVideoWriterMixin {
             }
         } catch (Throwable t) {
             FlashbackTurboClient.LOGGER.warn("[H11] promotion ignorée (fail-safe)", t);
-            promotedFrom = null; promotedTo = null;
+            promotedFrom = null;
+            promotedTo = null;
         }
 
-        // Enrichir le contexte d'export pour fbt_export_started.
         if (promotedTo != null) {
             try {
                 fr.zeffut.flashbackturbo.encoder.ExportContextHolder.recordPromotion(promotedFrom, promotedTo);
@@ -126,7 +115,6 @@ public abstract class AsyncFFmpegVideoWriterMixin {
             EncoderTuning.applyThreadingTunes(recorder);
         }
 
-        // Démarrage avec fallback : si le HW promu refuse de démarrer, on revient au software.
         try {
             recorder.start();
         } catch (Throwable t) {
@@ -139,10 +127,25 @@ public abstract class AsyncFFmpegVideoWriterMixin {
                     EncoderTuning.applyThreadingTunes(recorder);
                 }
                 try { fr.zeffut.flashbackturbo.encoder.ExportContextHolder.recordPromotion(null, null); } catch (Throwable ignored) {}
-                recorder.start(); // si ça relève ici, on laisse remonter (comportement vanilla)
+                recorder.start();
+            } else if (t instanceof FlashbackFFmpegFrameRecorder.Exception e) {
+                throw e;
             } else {
-                throw t;
+                throw new RuntimeException(t);
             }
+        }
+    }
+
+    @Unique
+    private static String flashbackturbo$getVideoCodecName(FlashbackFFmpegFrameRecorder recorder) {
+        try {
+            Field f = FlashbackFFmpegFrameRecorder.class.getDeclaredField("videoCodecName");
+            f.setAccessible(true);
+            Object value = f.get(recorder);
+            return value instanceof String s ? s : null;
+        } catch (Throwable t) {
+            FlashbackTurboClient.LOGGER.debug("[H11] lecture réflexive videoCodecName ignorée", t);
+            return null;
         }
     }
 }
