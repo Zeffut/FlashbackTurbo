@@ -1,3 +1,8 @@
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+import java.util.jar.JarFile
+
 plugins {
     id 'fabric-loom' version '1.16.2'
     id 'com.gradleup.shadow' version '9.2.2'
@@ -136,4 +141,68 @@ tasks.register('verifyRuntimeJarNames') {
     }
 }
 
-check.dependsOn tasks.named('verifyRuntimeJarNames')
+tasks.register('verifyFlashbackDependency') {
+    group = 'verification'
+    description = 'Verifies the exact Flashback 0.43.2 / Minecraft 26.2 compile-only dependency.'
+    inputs.file("libs/${project.flashback_jar}")
+    doLast {
+        def dependency = file("libs/${project.flashback_jar}")
+        if (!dependency.isFile()) {
+            throw new GradleException("Missing required Flashback dependency: ${dependency}. Run scripts/fetch-flashback.sh.")
+        }
+        def actualHash = MessageDigest.getInstance('SHA-256').digest(dependency.bytes).encodeHex().toString()
+        if (actualHash != project.flashback_sha256) {
+            throw new GradleException("Unexpected SHA-256 for ${dependency.name}: ${actualHash}")
+        }
+        new ZipFile(dependency).withCloseable { zip ->
+            def descriptor = zip.getEntry('fabric.mod.json')
+            if (descriptor == null) throw new GradleException("${dependency.name} has no fabric.mod.json")
+            def metadata = new JsonSlurper().parseText(zip.getInputStream(descriptor).getText('UTF-8'))
+            if (metadata.id != 'flashback' || metadata.version != project.flashback_version) {
+                throw new GradleException("Expected Flashback ${project.flashback_version}, found ${metadata.id} ${metadata.version}")
+            }
+            // Flashback 0.43.2 declares the interval >26.1 <26.3, which includes 26.2.
+            def minecraftRange = metadata.depends.minecraft as String
+            if (!(minecraftRange.contains('>26.1') && minecraftRange.contains('<26.3'))) {
+                throw new GradleException("${dependency.name} does not declare Minecraft 26.2 compatibility: ${minecraftRange}")
+            }
+        }
+    }
+}
+
+tasks.register('headlessSmoke') {
+    dependsOn tasks.named('shadowJar'), tasks.named('verifyRuntimeJarNames'), tasks.named('verifyFlashbackDependency')
+    group = 'verification'
+    description = 'Headlessly verifies the distributable archive, Fabric manifest, and client entrypoint class.'
+    doLast {
+        def runtimeJar = shadowJar.archiveFile.get().asFile
+        new JarFile(runtimeJar).withCloseable { zip ->
+            def manifest = zip.manifest
+            if (manifest?.mainAttributes?.getValue('Manifest-Version') == null) {
+                throw new GradleException("${runtimeJar.name} has no manifest version")
+            }
+            def descriptor = zip.getEntry('fabric.mod.json')
+            if (descriptor == null) throw new GradleException("${runtimeJar.name} has no fabric.mod.json")
+            def metadata = new JsonSlurper().parseText(zip.getInputStream(descriptor).getText('UTF-8'))
+            if (metadata.id != 'flashbackturbo' || metadata.version != project.version) {
+                throw new GradleException("Unexpected archive metadata: ${metadata.id} ${metadata.version}")
+            }
+            def entrypoint = metadata.entrypoints?.client?.getAt(0)
+            if (!(entrypoint instanceof String)) throw new GradleException('No client entrypoint in fabric.mod.json')
+            def classPath = entrypoint.replace('.', '/') + '.class'
+            if (zip.getEntry(classPath) == null) throw new GradleException("Entrypoint class is absent: ${classPath}")
+            if (zip.entries().any { it.name.startsWith('com/moulberry/flashback/') }) {
+                throw new GradleException('Flashback was bundled into the distributable despite being compile-only')
+            }
+            def urls = ([runtimeJar] + sourceSets.main.runtimeClasspath.files).collect { it.toURI().toURL() }
+            def loader = new URLClassLoader(urls as URL[], ClassLoader.systemClassLoader)
+            try {
+                Class.forName(entrypoint, false, loader)
+            } finally {
+                loader.close()
+            }
+        }
+    }
+}
+
+check.dependsOn tasks.named('verifyRuntimeJarNames'), tasks.named('verifyFlashbackDependency')
