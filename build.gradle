@@ -121,6 +121,13 @@ remapJar {
     enabled = false
 }
 
+// noIntermediateMappings() has no intermediary namespace, so Loom cannot remap the
+// sources archive. The installable ShadowJar remains in official Mojang names; omit only
+// this invalid secondary artifact.
+remapSourcesJar {
+    enabled = false
+}
+
 assemble.dependsOn shadowJar
 
 tasks.register('verifyRuntimeJarNames') {
@@ -143,7 +150,7 @@ tasks.register('verifyRuntimeJarNames') {
 
 tasks.register('verifyFlashbackDependency') {
     group = 'verification'
-    description = 'Verifies the exact Flashback 0.43.2 / Minecraft 26.2 compile-only dependency.'
+    description = 'Verifies the exact Flashback 0.43.4 / Minecraft 26.3 compile-only dependency.'
     inputs.file("libs/${project.flashback_jar}")
     doLast {
         def dependency = file("libs/${project.flashback_jar}")
@@ -161,10 +168,10 @@ tasks.register('verifyFlashbackDependency') {
             if (metadata.id != 'flashback' || metadata.version != project.flashback_version) {
                 throw new GradleException("Expected Flashback ${project.flashback_version}, found ${metadata.id} ${metadata.version}")
             }
-            // Flashback 0.43.2 declares the interval >26.1 <26.3, which includes 26.2.
+            // Flashback 0.43.4 declares the interval >26.2 <26.4, which includes 26.3.
             def minecraftRange = metadata.depends.minecraft as String
-            if (!(minecraftRange.contains('>26.1') && minecraftRange.contains('<26.3'))) {
-                throw new GradleException("${dependency.name} does not declare Minecraft 26.2 compatibility: ${minecraftRange}")
+            if (!(minecraftRange.contains('>26.2') && minecraftRange.contains('<26.4'))) {
+                throw new GradleException("${dependency.name} does not declare Minecraft 26.3 compatibility: ${minecraftRange}")
             }
         }
     }
