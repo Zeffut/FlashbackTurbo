@@ -5,8 +5,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-JAR_NAME="${1:-Flashback-0.43.2-for-MC26.2.jar}"
-URL="${2:-https://cdn.modrinth.com/data/4das1Fjq/versions/8bITQOSG/Flashback-0.43.2-for-MC26.2.jar}"
+JAR_NAME="${1:-Flashback-0.43.4-for-MC26.3.jar}"
+URL="${2:-https://cdn.modrinth.com/data/4das1Fjq/versions/3St6L2Ag/Flashback-0.43.4-for-MC26.3.jar}"
 
 mkdir -p libs
 
