@@ -98,23 +98,55 @@ public final class HwEncoderProbe {
      * temporaire avec l'encodeur demandé. Réussit ⇒ encodeur utilisable. Tout échec ⇒ false.
      */
     private static Predicate<String> realOpener() {
+        return opener(tmp -> {
+            org.bytedeco.javacv.FFmpegFrameRecorder rec =
+                new org.bytedeco.javacv.FFmpegFrameRecorder(tmp, 64, 64);
+            return new ProbeRecorder() {
+                public void start(String name) throws Exception {
+                    rec.setFormat("mp4");
+                    rec.setVideoCodecName(name);
+                    rec.setFrameRate(30);
+                    rec.start();
+                }
+
+                public void recordFrame() throws Exception {
+                    try (org.bytedeco.javacv.Java2DFrameConverter conv = new org.bytedeco.javacv.Java2DFrameConverter()) {
+                        java.awt.image.BufferedImage img =
+                            new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_3BYTE_BGR);
+                        rec.record(conv.convert(img));
+                    }
+                }
+
+                public void stop() throws Exception { rec.stop(); }
+                public void release() throws Exception { rec.release(); }
+            };
+        });
+    }
+
+    /** Seam package-private : le même cycle de vie, sans charger FFmpeg en test. */
+    interface ProbeRecorder {
+        void start(String name) throws Exception;
+        void recordFrame() throws Exception;
+        void stop() throws Exception;
+        void release() throws Exception;
+    }
+
+    @FunctionalInterface
+    interface RecorderFactory {
+        ProbeRecorder create(java.io.File tmp) throws Exception;
+    }
+
+    static Predicate<String> opener(RecorderFactory factory) {
         return name -> {
             java.io.File tmp = null;
-            org.bytedeco.javacv.FFmpegFrameRecorder rec = null;
+            ProbeRecorder rec = null;
             boolean started = false;
             try {
                 tmp = java.io.File.createTempFile("fbt-probe-", ".mp4");
-                rec = new org.bytedeco.javacv.FFmpegFrameRecorder(tmp, 64, 64);
-                rec.setFormat("mp4");
-                rec.setVideoCodecName(name);
-                rec.setFrameRate(30);
-                rec.start();
+                rec = factory.create(tmp);
+                rec.start(name);
                 started = true;
-                try (org.bytedeco.javacv.Java2DFrameConverter conv = new org.bytedeco.javacv.Java2DFrameConverter()) {
-                    java.awt.image.BufferedImage img =
-                        new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_3BYTE_BGR);
-                    rec.record(conv.convert(img));
-                }
+                rec.recordFrame();
                 return true;
             } catch (Throwable t) {
                 return false;
