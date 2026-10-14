@@ -65,7 +65,7 @@ dependencies {
     compileOnly "io.github.llamalad7:mixinextras-common:0.5.4"
 
     // Telemetry — shaded + relocated (see shadowJar) to avoid classloader conflicts.
-    implementation "com.posthog.java:posthog:1.1.1"
+    implementation "com.posthog.java:posthog:1.2.0"
 
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.10.2"
