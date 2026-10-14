@@ -44,7 +44,21 @@ queues one event, shuts down, and asserts the actual batch, anonymous ID,
 properties, UUID/timestamp, no identify/person mutation, and repeated shutdown.
 It never initializes a production SDK client or sends to an ingestion host.
 Existing facade, sanitization, anonymous-ID and export-context tests stay in
-scope. Archive/headless checks are non-ingestive, not an in-game GUI smoke.
+scope. `TelemetryInitIsolationTest` loads the actual compiled facade in an
+isolated classloader with inert config/Fabric/SDK boundaries. It verifies that
+startup config opt-out and development mode reach their guards, never request
+an identifier directory, never construct/capture/shutdown an SDK client, and
+keep both capture entrypoints inert. It does not initialize production telemetry.
+This is startup opt-out, not proof of live config reload: the unchanged facade
+checks enableTelemetry only at init. Disclosure/runtime privacy changes remain
+in the existing privacy lane t_da8ccda2, not silently included in this upgrade.
+Archive/headless checks are non-ingestive, not an in-game GUI smoke.
+
+The current main build targets Minecraft 26.3 / Java 25 only (gradle.properties
+and options.release); historical ports are not additional targets in this tree.
+When /usr/lib/jvm/java-25-openjdk-amd64 is absent, use an already qualified isolated
+JDK 25 with JAVA_HOME; do not commit a machine-specific path. The sole skipped
+unit is the opt-in external ModrinthApiLiveTest, not a telemetry test.
 
 No Gradle lockfiles existed for this upgrade. Resolve `dependencyInsight` on
 `runtimeClasspath` and inspect the distributable, not just the declared pin.
