@@ -58,7 +58,7 @@ public final class UpdateService {
     /** Mod embedding this copy of the module (rewritten per host by the template machinery). */
     private static final String HOST_MOD_ID = "flashbackturbo";
     /** Version of the embedded auto-update module itself (independent of the host mod). */
-    private static final String UPDATER_VERSION = "1.0.0";
+    private static final String UPDATER_VERSION = "1.1.0";
     /** All upd_* events are segmented under this fixed app, whatever the host mod. */
     private static final String TELEMETRY_APP = "autoupdate";
     /**
@@ -158,6 +158,7 @@ public final class UpdateService {
             }
 
             int updatesFound = 0;
+            int stagingFailures = 0;
             for (Map.Entry<String, ModrinthApi.LatestVersion> entry : latest.entrySet()) {
                 String localHash = entry.getKey();
                 ModrinthApi.LatestVersion lv = entry.getValue();
@@ -188,6 +189,7 @@ public final class UpdateService {
                             "to_version", lv.versionNumber()));
                 } catch (Exception e) {
                     LOG.warn("[AutoUpdate] failed to stage update for {}: {}", lv.projectId(), e.toString());
+                    stagingFailures++;
                     emit("update_failed", Map.of(
                             "project_id", lv.projectId(), "stage", "download", "reason", e.toString()));
                 }
@@ -198,11 +200,16 @@ public final class UpdateService {
                 Runtime.getRuntime().addShutdownHook(new Thread(this::applyAll, "autoupdate-swap"));
             }
 
-            emit("check_completed", Map.of(
-                    "scanned", jarsByHash.size(),
-                    "matched", latest.size(),
-                    "updates_found", updatesFound,
-                    "duration_ms", System.currentTimeMillis() - startedAt));
+            // Only report checks that did something: a successful check with no update sends
+            // nothing (it was ~99.99% of the upd_* volume). Check failures go to upd_update_failed.
+            if (updatesFound > 0 || stagingFailures > 0) {
+                emit("check_completed", Map.of(
+                        "scanned", jarsByHash.size(),
+                        "matched", latest.size(),
+                        "updates_found", updatesFound,
+                        "failures", stagingFailures,
+                        "duration_ms", System.currentTimeMillis() - startedAt));
+            }
             LOG.info("[AutoUpdate] check completed: {} jars scanned, {} matched on Modrinth, "
                     + "{} update(s) staged ({} ms)", jarsByHash.size(), latest.size(), updatesFound,
                     System.currentTimeMillis() - startedAt);
@@ -317,6 +324,8 @@ public final class UpdateService {
         Map<String, Object> props = new LinkedHashMap<>(properties);
         props.put("host_mod", HOST_MOD_ID);
         props.put("updater_version", UPDATER_VERSION);
+        // Anonymous installs: no person profile needed (cheaper personless events).
+        props.put("$process_person_profile", false);
         Telemetry.captureForApp(TELEMETRY_APP, "upd_" + shortName, source, mcVersion, modVersion, props);
     }
 
